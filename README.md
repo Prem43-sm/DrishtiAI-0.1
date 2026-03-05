@@ -76,6 +76,32 @@ What this script does:
    - `timetable`
    - `known_faces`
 
+## Face Env Clone Setup (Same as author machine)
+
+If you want to reproduce the author's `face_env` package set on another Windows device, use:
+
+- `setup_face_env_clone.bat`
+- `requirements-face_env-lock.txt`
+
+Run from project root:
+
+```bat
+setup_face_env_clone.bat
+```
+
+What this script does:
+
+1. Detects Python (prefers `3.10`)
+2. Creates `face_env` virtual environment
+3. Activates `face_env`
+4. Installs pinned packages from `requirements-face_env-lock.txt`
+5. Saves installed package snapshot to `face_env\installed-freeze.txt`
+
+Notes:
+
+- Best compatibility target is Python `3.10.x` (original env is `3.10.11`).
+- This clone setup is provided for environment parity with the original `face_env`.
+
 ## Run Process
 
 After setup, start the app:
