@@ -1,0 +1,127 @@
+﻿Activate.ps1 - File/Package Usage Report
+Generated on: 2026-03-05
+
+1) Script command used
+- & C:/Users/Pc495/face_env/Scripts/Activate.ps1
+
+2) Primary script file
+- File: C:\Users\Pc495\face_env\Scripts\Activate.ps1
+- Size: 26199 bytes
+- Last modified: 2026-02-19 15:11:25
+
+3) Files directly used by Activate.ps1
+- C:\Users\Pc495\face_env\Scripts\Activate.ps1 (this activation script)
+- C:\Users\Pc495\face_env\pyvenv.cfg (read for configuration)
+
+4) pyvenv.cfg values (versions/config)
+- home = C:\Users\Pc495\AppData\Local\Programs\Python\Python310
+- include-system-site-packages = false
+- version = 3.10.11
+
+5) What the script sets/changes in session
+- Sets VIRTUAL_ENV = C:\Users\Pc495\face_env
+- Sets VIRTUAL_ENV_PROMPT (if prompt is enabled)
+- Clears PYTHONHOME during activation (stores old value if present)
+- Prepends C:\Users\Pc495\face_env\Scripts to PATH
+- Defines/uses deactivate function for cleanup
+
+6) Key executables available in this venv Scripts folder
+- activate
+- activate.bat
+- Activate.ps1
+- deactivate.bat
+- python.exe
+- pythonw.exe
+- pip.exe
+- pip3.exe
+- pip3.10.exe
+- pyinstaller.exe
+- tensorboard.exe
+- face_recognition.exe
+- face_detection.exe
+- pyside6-designer.exe
+- pyside6-assistant.exe
+- wheel.exe
+
+7) Installed packages and versions (pip freeze)
+absl-py==2.4.0
+altgraph==0.17.5
+astunparse==1.6.3
+certifi==2026.1.4
+cffi==2.0.0
+charset-normalizer==3.4.4
+click==8.3.1
+colorama==0.4.6
+contourpy==1.3.2
+cryptography==46.0.5
+cycler==0.12.1
+dlib-bin==19.24.6
+et_xmlfile==2.0.0
+face-recognition==1.3.0
+face-recognition-models==0.3.0
+flatbuffers==25.12.19
+fonttools==4.61.1
+gast==0.4.0
+google-auth==2.48.0
+google-auth-oauthlib==0.4.6
+google-pasta==0.2.0
+grpcio==1.78.0
+h5py==3.15.1
+idna==3.11
+joblib==1.5.3
+keras==2.10.0
+Keras-Preprocessing==1.1.2
+kiwisolver==1.4.9
+libclang==18.1.1
+Markdown==3.10.2
+MarkupSafe==3.0.3
+matplotlib==3.10.8
+numpy==1.23.5
+oauthlib==3.3.1
+opencv-python==4.13.0.92
+openpyxl==3.1.5
+opt_einsum==3.4.0
+packaging==26.0
+pandas==2.3.3
+pefile==2024.8.26
+pillow==12.1.1
+pip==26.0.1
+protobuf==3.19.6
+pyasn1==0.6.2
+pyasn1_modules==0.4.2
+pybind11==3.0.2
+pycparser==3.0
+pyinstaller==6.19.0
+pyinstaller-hooks-contrib==2026.1
+pyparsing==3.3.2
+PySide6==6.10.2
+PySide6_Addons==6.10.2
+PySide6_Essentials==6.10.2
+python-dateutil==2.9.0.post0
+pytz==2025.2
+pywin32-ctypes==0.2.3
+requests==2.32.5
+requests-oauthlib==2.0.0
+rsa==4.9.1
+scikit-learn==1.7.2
+scipy==1.15.3
+seaborn==0.13.2
+setuptools==65.5.0
+shiboken6==6.10.2
+six==1.17.0
+tensorboard==2.10.1
+tensorboard-data-server==0.6.1
+tensorboard-plugin-wit==1.8.1
+tensorflow==2.10.0
+tensorflow-estimator==2.10.0
+tensorflow-io-gcs-filesystem==0.31.0
+termcolor==3.3.0
+threadpoolctl==3.6.0
+typing_extensions==4.15.0
+tzdata==2025.3
+urllib3==2.6.3
+Werkzeug==3.1.5
+wheel==0.46.3
+wrapt==2.1.1
+
+End of report.
