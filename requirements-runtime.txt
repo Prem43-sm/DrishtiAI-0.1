@@ -1,0 +1,9 @@
+numpy<2.0
+pandas
+matplotlib
+scikit-learn
+opencv-python
+PySide6<6.10
+tensorflow==2.16.1
+face-recognition
+setuptools

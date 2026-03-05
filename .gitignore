@@ -1,0 +1,30 @@
+﻿__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+.venv310/
+.venv311/
+face_env/
+
+# IDE/editor
+.vscode/
+
+# Models and large local assets
+*.h5
+face_recognition_models/
+Data/
+Processed_Data/
+Final_Dataset/
+
+# Runtime/generated outputs
+attendance/
+reports/
+snapshots/
+known_faces/
+
+# OS files
+.DS_Store
+Thumbs.db

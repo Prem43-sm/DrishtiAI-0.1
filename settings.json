@@ -1,0 +1,22 @@
+{
+    "camera_index": 0,
+    "resolution": "640x480",
+    "fps": 30,
+    "process_frame": 4,
+    "face_tolerance": 0.5,
+    "auto_attendance": true,
+    "model_path": "best_emotion_model.h5",
+    "auto_load_model": true,
+    "attendance_path": "attendance",
+    "course_name": "MSc-IT",
+    "snapshot_path": "snapshots",
+    "auto_snapshot": false,
+    "theme": "dark",
+    "cameras": [
+        {
+            "id": 0,
+            "name": "Main Camera",
+            "class": "MSc-IT"
+        }
+    ]
+}
