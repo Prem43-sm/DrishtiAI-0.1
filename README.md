@@ -135,6 +135,31 @@ Important keys include:
 7. Review attendance and analytics pages
 8. Check generated files in `attendance/`, `reports/`, `snapshots/`
 
+## Emotion Model Train (Emotion_model_train)
+
+For training your own emotion model, use this repository:
+
+- `https://github.com/Prem43-sm/Emotion_Model_train_for_DrishtiAI.git`
+
+Note:
+
+- Repository/page name is renamed from `msc-ai-project` to `Emotion_model_train`.
+
+How to create and use your own model for DrishtiAI:
+
+1. Clone/open the model training repo (`Emotion_model_train`).
+2. Prepare your emotion dataset as required by that repo.
+3. Run its training pipeline and export the trained model as `.h5`.
+4. Rename/copy your trained file to `best_emotion_model.h5` (recommended) and place it in DrishtiAI project root.
+5. Or keep your own filename and set it in DrishtiAI `settings.json`:
+   - `model_path: "your_model_name.h5"`
+6. Start DrishtiAI again using `run_drishtiai.bat`.
+
+Required output for DrishtiAI runtime:
+
+- Emotion model file in project root (`.h5`)
+- Preferred name: `best_emotion_model.h5`
+
 ## Manual Run (Optional)
 
 If needed, run manually without batch file:
