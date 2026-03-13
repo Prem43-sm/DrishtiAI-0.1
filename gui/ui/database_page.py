@@ -1,9 +1,10 @@
 from PySide6.QtWidgets import *
 from PySide6.QtGui import QPixmap, QDesktopServices, QCursor
-from PySide6.QtCore import Qt, QUrl, QTime
+from PySide6.QtCore import Qt, QUrl, QTime, QThread, Signal
 import os
 import json
 import shutil
+import subprocess
 import pandas as pd
 import numpy as np
 import cv2
@@ -13,10 +14,29 @@ from functools import partial
 from face_memory import FaceMemory
 
 
+class ReportWorker(QThread):
+    finished = Signal(bool, str)
+
+    def run(self):
+        try:
+            result = subprocess.run(
+                ["python", "monthly_report.py"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                self.finished.emit(True, "Monthly report generated successfully.")
+            else:
+                self.finished.emit(False, result.stderr)
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
 class DatabasePage(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.report_worker = None
 
         os.makedirs("known_faces", exist_ok=True)
         os.makedirs("attendance", exist_ok=True)
@@ -56,12 +76,15 @@ class DatabasePage(QWidget):
 
         load_btn = QPushButton("Load")
         load_btn.clicked.connect(self.load_attendance)
+        self.generate_report_btn = QPushButton("Generate Monthly Report")
+        self.generate_report_btn.clicked.connect(self.generate_monthly_report)
 
         filter_layout.addWidget(QLabel("Class"))
         filter_layout.addWidget(self.class_filter)
         filter_layout.addWidget(self.start_time)
         filter_layout.addWidget(self.end_time)
         filter_layout.addWidget(load_btn)
+        filter_layout.addWidget(self.generate_report_btn)
 
         layout.addLayout(filter_layout)
 
@@ -69,6 +92,24 @@ class DatabasePage(QWidget):
         layout.addWidget(self.attendance_table)
 
         return tab
+
+    def generate_monthly_report(self):
+        self.generate_report_btn.setEnabled(False)
+        self.generate_report_btn.setText("Generating...")
+
+        self.report_worker = ReportWorker()
+        self.report_worker.finished.connect(self.on_monthly_report_done)
+        self.report_worker.start()
+
+    def on_monthly_report_done(self, success, message):
+        self.generate_report_btn.setEnabled(True)
+        self.generate_report_btn.setText("Generate Monthly Report")
+
+        if success:
+            QMessageBox.information(self, "Success", message)
+            self.load_reports()
+        else:
+            QMessageBox.warning(self, "Error", message)
 
     def load_attendance(self):
         cls = self.class_filter.currentText().strip()

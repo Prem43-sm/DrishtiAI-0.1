@@ -2,7 +2,7 @@ numpy<2.0
 pandas
 matplotlib
 scikit-learn
-opencv-python
+opencv-python<4.12
 PySide6<6.10
 tensorflow==2.16.1
 face-recognition

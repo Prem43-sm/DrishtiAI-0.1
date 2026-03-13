@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowIcon(QIcon(resource_path("gui/DrishtiAI_Logo.ico")))
+        self.setWindowIcon(QIcon(resource_path("gui/assets/branding/DrishtiAI_Logo.ico")))
         self.setWindowTitle("DrishtiAI 0.1")
         self.resize(1200, 700)
 
@@ -110,6 +110,9 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.settings_page)
         self.pages.addWidget(self.about_page)
 
+        # Motion analytics remains off by default to reduce load.
+        self.emotion_analytics_page.set_runtime_enabled(False)
+
         # ================= CONNECTIONS =================
         btn_dashboard.clicked.connect(lambda: self.pages.setCurrentWidget(self.dashboard_page))
         btn_tracking.clicked.connect(lambda: self.pages.setCurrentWidget(self.tracking_page))
@@ -123,6 +126,9 @@ class MainWindow(QMainWindow):
         btn_training.clicked.connect(lambda: self.pages.setCurrentWidget(self.training_page))
         btn_settings.clicked.connect(lambda: self.pages.setCurrentWidget(self.settings_page))
         btn_about.clicked.connect(lambda: self.pages.setCurrentWidget(self.about_page))
+        self.dashboard_page.motion_analytics_toggled.connect(
+            self.emotion_analytics_page.set_runtime_enabled
+        )
 
         # ================= ADD TO MAIN LAYOUT =================
         main_layout.addLayout(sidebar, 1)

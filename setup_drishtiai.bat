@@ -4,59 +4,68 @@ setlocal EnableExtensions
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
-echo [DrishtiAI Setup] Project root: "%ROOT%"
+set "VENV_NAME=face_env"
+set "REQ_FILE=requirements-face_env-lock.txt"
+set "MAIN_SCRIPT=gui\main_gui.py"
+set "PY_CMD="
+set "VENV_PY=%ROOT%%VENV_NAME%\Scripts\python.exe"
 
-if not exist "gui\main_gui.py" (
-    echo [ERROR] Entry file not found: "gui\main_gui.py"
+echo [1/7] Checking project files...
+if not exist "%REQ_FILE%" (
+    echo [ERROR] Missing "%REQ_FILE%".
     pause
     exit /b 1
 )
 
-set "PY_CMD="
-set "PY_MM="
+if not exist "%MAIN_SCRIPT%" (
+    echo [ERROR] Entry file not found: "%MAIN_SCRIPT%"
+    pause
+    exit /b 1
+)
 
-py -3.11 -c "import sys" >nul 2>nul
+echo [2/7] Detecting Python 3.10...
+py -3.10 -c "import sys" >nul 2>nul
 if %errorlevel%==0 (
-    set "PY_CMD=py -3.11"
-    set "PY_MM=3.11"
+    set "PY_CMD=py -3.10"
 )
 
 if not defined PY_CMD (
-    py -3.10 -c "import sys" >nul 2>nul
+    python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 10) else 1)" >nul 2>nul
     if %errorlevel%==0 (
-        set "PY_CMD=py -3.10"
-        set "PY_MM=3.10"
+        set "PY_CMD=python"
     )
 )
 
 if not defined PY_CMD (
-    echo [ERROR] Python 3.10/3.11 not found via py launcher.
-    echo [FIX] Install Python 3.11 and ensure the launcher command `py` works.
+    echo [ERROR] Python 3.10 was not found.
+    echo [FIX] Install Python 3.10.x and make sure "py -3.10" or "python" works in terminal.
     pause
     exit /b 1
 )
 
-echo [DrishtiAI Setup] Selected interpreter: %PY_CMD% (Python %PY_MM%)
+echo [DrishtiAI Setup] Using interpreter: %PY_CMD%
 
-set "VENV_NAME=.venv311"
-if "%PY_MM%"=="3.10" set "VENV_NAME=.venv310"
-
-set "VENV_DIR=%ROOT%%VENV_NAME%"
-set "VENV_PY=%VENV_DIR%\Scripts\python.exe"
-
-if not exist "%VENV_PY%" (
-    echo [DrishtiAI Setup] Creating virtual environment at "%VENV_DIR%"...
-    %PY_CMD% -m venv "%VENV_DIR%"
+echo [3/7] Creating virtual environment (%VENV_NAME%)...
+if exist "%VENV_PY%" (
+    echo [DrishtiAI Setup] Reusing existing %VENV_NAME%.
+) else (
+    %PY_CMD% -m venv "%VENV_NAME%"
     if errorlevel 1 (
-        echo [ERROR] Failed to create virtual environment at "%VENV_DIR%".
+        echo [ERROR] Failed to create "%VENV_NAME%".
         pause
         exit /b 1
     )
-) else (
-    echo [DrishtiAI Setup] Reusing existing %VENV_NAME%.
 )
 
-echo [DrishtiAI Setup] Upgrading pip/setuptools/wheel...
+"%VENV_PY%" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 10) else 1)" >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] "%VENV_NAME%" is not using Python 3.10.
+    echo [FIX] Delete "%VENV_NAME%" and run setup_drishtiai.bat again with Python 3.10 installed.
+    pause
+    exit /b 1
+)
+
+echo [4/7] Upgrading pip, setuptools, and wheel...
 "%VENV_PY%" -m pip install --upgrade pip setuptools wheel
 if errorlevel 1 (
     echo [ERROR] Failed to upgrade packaging tools.
@@ -64,31 +73,25 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist "requirements-runtime.txt" (
-    echo [ERROR] Missing dependency file: "requirements-runtime.txt"
-    pause
-    exit /b 1
-)
-
-echo [DrishtiAI Setup] Installing project dependencies...
-"%VENV_PY%" -m pip install -r "requirements-runtime.txt"
+echo [5/7] Installing locked dependencies...
+"%VENV_PY%" -m pip install -r "%REQ_FILE%"
 if errorlevel 1 (
     echo [ERROR] Dependency installation failed.
-    echo [FIX] Install Microsoft C++ Build Tools if dlib/face-recognition build fails, then rerun setup.
+    echo [FIX] If tensorflow or dlib fails, verify Python 3.10 and install Microsoft C++ Build Tools.
     pause
     exit /b 1
 )
 
-echo [DrishtiAI Setup] Ensuring runtime folders exist...
+echo [6/7] Ensuring runtime folders exist...
 for %%D in (attendance reports snapshots timetable known_faces) do (
     if not exist "%%D" mkdir "%%D"
 )
 
-if not exist "settings.json" echo [WARN] Optional file missing: settings.json
-if not exist "gui\settings.json" echo [WARN] Optional file missing: gui\settings.json
+echo [7/7] Saving installed package snapshot...
+"%VENV_PY%" -m pip list --format=freeze > "%VENV_NAME%\installed-freeze.txt"
 
-if not exist "*.h5" echo [WARN] No model .h5 file found in project root.
-
-echo [DrishtiAI Setup] Completed successfully.
+echo.
+echo [DrishtiAI Setup] face_env is ready.
+echo [DrishtiAI Setup] Start the app with: run_drishtiai.bat
 pause
 exit /b 0

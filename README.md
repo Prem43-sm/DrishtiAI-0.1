@@ -64,43 +64,23 @@ setup_drishtiai.bat
 
 What this script does:
 
-1. Verifies `gui/main_gui.py` exists
-2. Selects Python `3.11` first, then `3.10`
-3. Creates virtual env (`.venv311` or `.venv310`)
+1. Verifies `gui/main_gui.py` and `requirements-face_env-lock.txt` exist
+2. Requires Python `3.10`
+3. Creates virtual env `face_env`
 4. Upgrades `pip`, `setuptools`, `wheel`
-5. Installs `requirements-runtime.txt`
+5. Installs locked packages from `requirements-face_env-lock.txt`
 6. Creates runtime folders if missing:
    - `attendance`
    - `reports`
    - `snapshots`
    - `timetable`
    - `known_faces`
-
-## Face Env Clone Setup (Same as author machine)
-
-If you want to reproduce the author's `face_env` package set on another Windows device, use:
-
-- `setup_face_env_clone.bat`
-- `requirements-face_env-lock.txt`
-
-Run from project root:
-
-```bat
-setup_face_env_clone.bat
-```
-
-What this script does:
-
-1. Detects Python (prefers `3.10`)
-2. Creates `face_env` virtual environment
-3. Activates `face_env`
-4. Installs pinned packages from `requirements-face_env-lock.txt`
-5. Saves installed package snapshot to `face_env\installed-freeze.txt`
+7. Saves a package snapshot to `face_env\installed-freeze.txt`
 
 Notes:
 
 - Best compatibility target is Python `3.10.x` (original env is `3.10.11`).
-- This clone setup is provided for environment parity with the original `face_env`.
+- `setup_face_env_clone.bat` is still included as an alternate clone helper, but `setup_drishtiai.bat` now sets up the same `face_env` directly.
 
 ## Run Process
 
@@ -112,9 +92,10 @@ run_drishtiai.bat
 
 Run script behavior:
 
-1. Finds Python in `.venv311`, `.venv310`, or `.venv`
-2. Sets `PYTHONPATH` to project root
-3. Launches `gui/main_gui.py`
+1. Finds Python in `face_env` first
+2. Falls back to `.venv311`, `.venv310`, or `.venv` if needed
+3. Sets `PYTHONPATH` to project root
+4. Launches `gui/main_gui.py`
 
 ## First Login / Account Setup
 
@@ -191,13 +172,13 @@ Required output for DrishtiAI runtime:
 If needed, run manually without batch file:
 
 ```powershell
-.\.venv311\Scripts\python.exe gui\main_gui.py
+.\face_env\Scripts\python.exe gui\main_gui.py
 ```
 
 or
 
 ```powershell
-.\.venv310\Scripts\python.exe gui\main_gui.py
+.\.venv311\Scripts\python.exe gui\main_gui.py
 ```
 
 ## Troubleshooting
@@ -205,8 +186,8 @@ or
 - Error: `No virtual environment found`
   - Run `setup_drishtiai.bat` first.
 
-- Error: `Python 3.10/3.11 not found via py launcher`
-  - Install Python 3.11 and ensure `py` works in terminal.
+- Error: `Python 3.10 was not found`
+  - Install Python 3.10.x and ensure `py -3.10` or `python` works in terminal.
 
 - Dependency install fails for `face-recognition` / `dlib`
   - Install Microsoft C++ Build Tools, then rerun setup.

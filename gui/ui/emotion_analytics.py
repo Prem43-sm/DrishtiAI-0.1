@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 import re
 
@@ -7,6 +8,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -14,16 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-try:
-    import seaborn as sns
-except Exception:  # pragma: no cover
-    sns = None
-
 
 class EmotionAnalyticsPage(QWidget):
-    # ---------------------------------------------------------
-    # PAGE INIT
-    # ---------------------------------------------------------
     def __init__(self):
         super().__init__()
 
@@ -36,26 +30,23 @@ class EmotionAnalyticsPage(QWidget):
         self.csv_sources = []
         self.known_face_classes = []
         self._last_signature = None
+        self.runtime_enabled = False
+        self.refresh_timer = None
 
         self._build_ui()
-        self.load_data()
-        self._start_auto_refresh()
+        self._set_paused_state()
 
-    # ---------------------------------------------------------
-    # UI BUILD
-    # ---------------------------------------------------------
     def _build_ui(self):
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(12, 12, 12, 10)
+        main_layout.setSpacing(8)
 
         title = QLabel("Emotion Analytics")
-        title.setStyleSheet("font-size:18px; font-weight:bold;")
+        title.setStyleSheet("font-size:20px; font-weight:bold; color:#f2f2f2;")
         main_layout.addWidget(title)
 
-        # Top filter bar
         controls = QHBoxLayout()
-        controls.setSpacing(10)
+        controls.setSpacing(8)
 
         controls.addWidget(QLabel("Mode:"))
         self.mode_selector = QComboBox()
@@ -64,14 +55,14 @@ class EmotionAnalyticsPage(QWidget):
 
         controls.addWidget(QLabel("Class:"))
         self.class_selector = QComboBox()
-        self.class_selector.setMinimumWidth(220)
+        self.class_selector.setMinimumWidth(200)
         controls.addWidget(self.class_selector)
 
         self.student_label = QLabel("Student:")
         controls.addWidget(self.student_label)
 
         self.student_selector = QComboBox()
-        self.student_selector.setMinimumWidth(220)
+        self.student_selector.setMinimumWidth(180)
         controls.addWidget(self.student_selector)
 
         self.refresh_btn = QPushButton("Refresh")
@@ -80,66 +71,106 @@ class EmotionAnalyticsPage(QWidget):
         controls.addStretch()
 
         self.data_status = QLabel("")
+        self.data_status.setStyleSheet("color:#cfcfcf;")
         controls.addWidget(self.data_status)
-
         main_layout.addLayout(controls)
 
         self.alert_label = QLabel("")
         self.alert_label.setWordWrap(True)
-        self.alert_label.setStyleSheet("padding: 8px; border-radius: 4px;")
+        self.alert_label.setStyleSheet("padding:6px; border-radius:4px;")
         main_layout.addWidget(self.alert_label)
 
-        chart_row = QHBoxLayout()
-        chart_row.setSpacing(12)
+        charts_row = QHBoxLayout()
+        charts_row.setSpacing(8)
 
-        self.student_fig = Figure(figsize=(6, 4), tight_layout=True)
-        self.student_canvas = FigureCanvas(self.student_fig)
-        chart_row.addWidget(self.student_canvas, 1)
+        self.bar_fig = Figure(figsize=(4.5, 3.2), tight_layout=True)
+        self.bar_canvas = FigureCanvas(self.bar_fig)
+        charts_row.addWidget(self.bar_canvas, 1)
 
-        self.heatmap_fig = Figure(figsize=(6, 4), tight_layout=True)
-        self.heatmap_canvas = FigureCanvas(self.heatmap_fig)
-        chart_row.addWidget(self.heatmap_canvas, 1)
+        self.pie_fig = Figure(figsize=(4.5, 3.2), tight_layout=True)
+        self.pie_canvas = FigureCanvas(self.pie_fig)
+        charts_row.addWidget(self.pie_canvas, 1)
 
-        main_layout.addLayout(chart_row, 1)
+        self.line_fig = Figure(figsize=(4.5, 3.2), tight_layout=True)
+        self.line_canvas = FigureCanvas(self.line_fig)
+        charts_row.addWidget(self.line_canvas, 1)
+
+        main_layout.addLayout(charts_row, 1)
+
+        self.status_bar = QFrame()
+        self.status_bar.setFixedHeight(34)
+        self.status_bar.setStyleSheet(
+            "QFrame { background:#161a1f; border:1px solid #2a2f36; border-radius:5px; }"
+            "QLabel { color:#d7dde8; font-size:12px; }"
+        )
+        status_row = QHBoxLayout(self.status_bar)
+        status_row.setContentsMargins(10, 4, 10, 4)
+        status_row.setSpacing(14)
+        self.today_time_label = QLabel("Start: --  End: --  Duration: --")
+        self.today_emotion_label = QLabel("Today: --")
+        self.today_emotion_label.setStyleSheet("color:#9fd2ff; font-size:12px;")
+        status_row.addWidget(self.today_time_label)
+        status_row.addWidget(self.today_emotion_label, 1)
+        main_layout.addWidget(self.status_bar)
+
         self.setLayout(main_layout)
 
         self.mode_selector.currentIndexChanged.connect(self._on_filter_change)
         self.class_selector.currentIndexChanged.connect(self._on_filter_change)
         self.student_selector.currentIndexChanged.connect(self._on_filter_change)
 
-    # ---------------------------------------------------------
-    # DATA LOAD + PREP
-    # ---------------------------------------------------------
-    def load_data(self):
-        self._last_signature = self._data_signature()
+    def _style_axes(self, ax):
+        ax.set_facecolor("#0f141b")
+        for spine in ax.spines.values():
+            spine.set_color("#425167")
+        ax.tick_params(colors="#d7dde8")
+        ax.xaxis.label.set_color("#e6ecf5")
+        ax.yaxis.label.set_color("#e6ecf5")
+        ax.title.set_color("#f3f7ff")
 
+    @staticmethod
+    def _set_fig_bg(fig):
+        fig.patch.set_facecolor("#0b0f14")
+
+    def _draw_empty(self, fig, canvas, message):
+        fig.clear()
+        self._set_fig_bg(fig)
+        ax = fig.add_subplot(111)
+        self._style_axes(ax)
+        ax.text(0.5, 0.5, message, ha="center", va="center", color="#c9d2e3")
+        ax.set_axis_off()
+        canvas.draw_idle()
+
+    def load_data(self):
+        if not self.runtime_enabled:
+            self._set_paused_state()
+            return
+
+        self._last_signature = self._data_signature()
         if not self.attendance_dir.exists():
-            self._set_empty_data("Attendance folder not found")
+            self._set_empty_data("Attendance folder not found.")
             return
 
         self.csv_sources = self._discover_csv_sources()
         if not self.csv_sources:
-            self._set_empty_data("No CSV files found in attendance/")
+            self._set_empty_data("No CSV files found in attendance/.")
             return
 
         frames = []
         for csv_file in self.csv_sources:
-            df_part = self._read_emotion_rows(csv_file)
-            if not df_part.empty:
-                frames.append(df_part)
+            part = self._read_emotion_rows(csv_file)
+            if not part.empty:
+                frames.append(part)
 
         if not frames:
-            self._set_empty_data(
-                "No emotion rows yet. Start live tracking to generate attendance/emotion_data.csv"
-            )
+            self._set_empty_data("No usable emotion rows found.")
             return
 
         df = pd.concat(frames, ignore_index=True)
         if df.empty:
-            self._set_empty_data("No data available")
+            self._set_empty_data("No data available.")
             return
 
-        # Categories reduce memory for larger files.
         df["student"] = df["student"].astype("category")
         df["emotion"] = df["emotion"].astype("category")
         df["class"] = df["class"].astype("category")
@@ -155,12 +186,35 @@ class EmotionAnalyticsPage(QWidget):
         )
 
     def _start_auto_refresh(self):
-        self.refresh_timer = QTimer(self)
-        self.refresh_timer.setInterval(5000)
-        self.refresh_timer.timeout.connect(self._auto_refresh_tick)
-        self.refresh_timer.start()
+        if self.refresh_timer is None:
+            self.refresh_timer = QTimer(self)
+            self.refresh_timer.setInterval(5000)
+            self.refresh_timer.timeout.connect(self._auto_refresh_tick)
+        if not self.refresh_timer.isActive():
+            self.refresh_timer.start()
+
+    def _stop_auto_refresh(self):
+        if self.refresh_timer is not None and self.refresh_timer.isActive():
+            self.refresh_timer.stop()
+
+    def set_runtime_enabled(self, enabled: bool):
+        enabled = bool(enabled)
+        if enabled == self.runtime_enabled:
+            return
+
+        self.runtime_enabled = enabled
+        self.refresh_btn.setEnabled(enabled)
+
+        if enabled:
+            self.load_data()
+            self._start_auto_refresh()
+        else:
+            self._stop_auto_refresh()
+            self._set_paused_state()
 
     def _auto_refresh_tick(self):
+        if not self.runtime_enabled:
+            return
         signature = self._data_signature()
         if signature != self._last_signature:
             self.load_data()
@@ -168,12 +222,6 @@ class EmotionAnalyticsPage(QWidget):
     def _data_signature(self):
         if not self.attendance_dir.exists():
             return None
-
-        emotion_file = self.attendance_dir / "emotion_data.csv"
-        if emotion_file.exists():
-            st = emotion_file.stat()
-            return ("emotion_data.csv", st.st_size, st.st_mtime_ns)
-
         parts = []
         for csv_file in sorted(self.attendance_dir.rglob("*.csv")):
             try:
@@ -200,23 +248,18 @@ class EmotionAnalyticsPage(QWidget):
             ["name", "student", "student_name", "studentname", "user", "userid"],
         )
         emotion_col = self._find_column(header_df.columns, ["emotion", "mood", "expression"])
-        date_col = self._find_column(
-            header_df.columns,
-            ["date", "day", "recorded_date", "timestamp", "datetime"],
-        )
-        class_col = self._find_column(
-            header_df.columns,
-            ["class", "classname", "batch", "section"],
-        )
+        class_col = self._find_column(header_df.columns, ["class", "classname", "batch", "section"])
+        date_col = self._find_column(header_df.columns, ["date", "day", "recorded_date"])
+        time_col = self._find_column(header_df.columns, ["time", "recorded_time", "clock"])
+        datetime_col = self._find_column(header_df.columns, ["datetime", "timestamp"])
 
         if not student_col or not emotion_col:
             return pd.DataFrame()
 
         usecols = [student_col, emotion_col]
-        if date_col:
-            usecols.append(date_col)
-        if class_col:
-            usecols.append(class_col)
+        for c in [class_col, date_col, time_col, datetime_col]:
+            if c and c not in usecols:
+                usecols.append(c)
 
         try:
             df = pd.read_csv(csv_file, usecols=usecols)
@@ -239,11 +282,25 @@ class EmotionAnalyticsPage(QWidget):
         else:
             out["class"] = self._infer_class_name(csv_file)
 
-        if date_col:
-            out["date"] = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
+        if datetime_col:
+            out["datetime"] = pd.to_datetime(df[datetime_col], errors="coerce")
         else:
-            out["date"] = self._infer_date_from_filename(csv_file.name)
+            if date_col:
+                date_series = df[date_col].astype(str).str.strip()
+            else:
+                fallback_date = self._infer_date_from_filename(csv_file.name)
+                date_series = pd.Series(
+                    [fallback_date.strftime("%Y-%m-%d") if pd.notna(fallback_date) else ""] * len(df)
+                )
+            if time_col:
+                time_series = df[time_col].astype(str).str.strip()
+                out["datetime"] = pd.to_datetime(date_series + " " + time_series, errors="coerce")
+            else:
+                out["datetime"] = pd.to_datetime(date_series, errors="coerce")
 
+        out["date"] = pd.to_datetime(out["datetime"], errors="coerce").dt.normalize()
+        if out["date"].isna().all():
+            out["date"] = self._infer_date_from_filename(csv_file.name)
         return out.reset_index(drop=True)
 
     @staticmethod
@@ -270,9 +327,6 @@ class EmotionAnalyticsPage(QWidget):
             return pd.NaT
         return pd.to_datetime(match.group(1), errors="coerce")
 
-    # ---------------------------------------------------------
-    # FILTERS
-    # ---------------------------------------------------------
     def _populate_class_options(self):
         self.class_selector.blockSignals(True)
         current_class = self.class_selector.currentText().strip()
@@ -282,7 +336,6 @@ class EmotionAnalyticsPage(QWidget):
         data_classes = []
         if not self.analytics_df.empty:
             data_classes = self.analytics_df["class"].astype(str).unique().tolist()
-
         self.known_face_classes = self._get_known_face_classes()
         classes = sorted(set(data_classes) | set(self.known_face_classes))
         self.class_selector.addItems(classes)
@@ -307,7 +360,6 @@ class EmotionAnalyticsPage(QWidget):
         self.student_selector.addItems(students)
         if current_student and current_student in students:
             self.student_selector.setCurrentText(current_student)
-
         self.student_selector.blockSignals(False)
 
     def _class_filtered_df(self):
@@ -318,147 +370,221 @@ class EmotionAnalyticsPage(QWidget):
             return self.analytics_df
         return self.analytics_df[self.analytics_df["class"].astype(str) == selected_class]
 
+    def _view_filtered_df(self):
+        class_df = self._class_filtered_df()
+        if class_df.empty:
+            return class_df
+        if self.mode_selector.currentText().strip() == "Single Student":
+            student = self.student_selector.currentText().strip()
+            if student:
+                return class_df[class_df["student"].astype(str) == student]
+            return pd.DataFrame()
+        return class_df
+
     def _on_filter_change(self):
         self._apply_mode_visibility()
         self._populate_student_options()
         self._update_all_views()
 
     def _apply_mode_visibility(self):
-        mode = self.mode_selector.currentText().strip()
-        single_mode = mode == "Single Student"
+        single_mode = self.mode_selector.currentText().strip() == "Single Student"
         self.student_label.setVisible(single_mode)
         self.student_selector.setVisible(single_mode)
 
-    # ---------------------------------------------------------
-    # CHART + ALERT UPDATE
-    # ---------------------------------------------------------
     def _update_all_views(self):
-        class_df = self._class_filtered_df()
-        mode = self.mode_selector.currentText().strip()
+        view_df = self._view_filtered_df()
+        self._update_bar_chart(view_df)
+        self._update_pie_chart(view_df)
+        self._update_line_chart(view_df)
+        self._update_today_summary(view_df)
+        self._update_alert_label(view_df)
 
-        if mode == "Single Student":
-            student = self.student_selector.currentText().strip()
-            if student:
-                student_df = class_df[class_df["student"].astype(str) == student]
-            else:
-                student_df = pd.DataFrame()
-            self._update_student_chart(student_df, student_name=student)
-            self._update_alert_label(student_df, single_student=student)
-        else:
-            self._update_student_chart(class_df, student_name=None)
-            self._update_alert_label(class_df, single_student=None)
-
-        self._update_heatmap(class_df)
-
-    def _update_student_chart(self, df, student_name=None):
-        self.student_fig.clear()
-        ax = self.student_fig.add_subplot(111)
+    def _update_bar_chart(self, df):
+        self.bar_fig.clear()
+        self._set_fig_bg(self.bar_fig)
+        ax = self.bar_fig.add_subplot(111)
+        self._style_axes(ax)
 
         if df.empty:
-            text = "No data available"
-            if student_name:
-                text = "Student not found"
-            ax.text(0.5, 0.5, text, ha="center", va="center")
+            ax.text(0.5, 0.5, "No data available", ha="center", va="center", color="#c9d2e3")
             ax.set_axis_off()
-            self.student_canvas.draw_idle()
+            self.bar_canvas.draw_idle()
             return
 
-        counts = (
-            df.groupby("emotion", observed=True)
-            .size()
-            .rename("count")
-            .reset_index()
-            .sort_values("count", ascending=False)
-        )
-
-        x_vals = counts["emotion"].astype(str).tolist()
-        y_vals = counts["count"].tolist()
-        ax.bar(x_vals, y_vals, color="#3E7CB1")
-        if student_name:
-            ax.set_title(f"Emotion Frequency - {student_name}")
-        else:
-            ax.set_title("Emotion Frequency - Selected Class")
-        ax.set_xlabel("Emotions")
+        counts = df.groupby("emotion", observed=True).size().sort_values(ascending=False)
+        ax.bar(counts.index.astype(str), counts.values, color="#4EA1FF", edgecolor="#89c2ff")
+        ax.set_title("Bar")
+        ax.set_xlabel("Emotion")
         ax.set_ylabel("Count")
-        ax.tick_params(axis="x", rotation=30)
-        self.student_canvas.draw_idle()
+        ax.tick_params(axis="x", rotation=22)
+        self.bar_canvas.draw_idle()
 
-    def _update_heatmap(self, class_df):
-        self.heatmap_fig.clear()
-        ax = self.heatmap_fig.add_subplot(111)
+    def _update_pie_chart(self, df):
+        self.pie_fig.clear()
+        self._set_fig_bg(self.pie_fig)
+        ax = self.pie_fig.add_subplot(111)
+        self._style_axes(ax)
 
-        if class_df.empty:
-            ax.text(0.5, 0.5, "No data available", ha="center", va="center")
+        if df.empty:
+            ax.text(0.5, 0.5, "No data available", ha="center", va="center", color="#c9d2e3")
             ax.set_axis_off()
-            self.heatmap_canvas.draw_idle()
+            self.pie_canvas.draw_idle()
             return
 
-        heatmap_df = class_df.pivot_table(
-            index="student",
-            columns="emotion",
-            aggfunc="size",
-            fill_value=0,
+        counts = df.groupby("emotion", observed=True).size().sort_values(ascending=False)
+        labels = counts.index.astype(str).tolist()
+        values = counts.values
+
+        wedges, _, autotexts = ax.pie(
+            values,
+            labels=None,
+            autopct=lambda p: f"{p:.1f}%" if p >= 6 else "",
+            pctdistance=0.72,
+            startangle=140,
+            wedgeprops={"linewidth": 0.8, "edgecolor": "#0b0f14"},
+            textprops={"color": "#e8eef8", "fontsize": 9},
         )
-        if heatmap_df.empty:
-            ax.text(0.5, 0.5, "No data available", ha="center", va="center")
+        for t in autotexts:
+            t.set_color("#f3f8ff")
+            t.set_fontsize(8)
+
+        # Legend avoids label collision on small chart area.
+        ax.legend(
+            wedges,
+            labels,
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            frameon=False,
+            labelcolor="#d7dde8",
+            fontsize=8,
+        )
+        ax.set_title("Pie")
+        self.pie_canvas.draw_idle()
+
+    def _update_line_chart(self, df):
+        self.line_fig.clear()
+        self._set_fig_bg(self.line_fig)
+        ax = self.line_fig.add_subplot(111)
+        self._style_axes(ax)
+
+        if df.empty or "datetime" not in df.columns:
+            ax.text(0.5, 0.5, "No time-series data", ha="center", va="center", color="#c9d2e3")
             ax.set_axis_off()
-            self.heatmap_canvas.draw_idle()
+            self.line_canvas.draw_idle()
             return
 
-        if sns is None:
-            ax.text(
-                0.5,
-                0.5,
-                "Seaborn is not installed.\nInstall seaborn to view heatmap.",
-                ha="center",
-                va="center",
+        timed_df = df.dropna(subset=["datetime"]).copy()
+        timed_df["datetime"] = pd.to_datetime(timed_df["datetime"], errors="coerce")
+        timed_df = timed_df.dropna(subset=["datetime"])
+        if timed_df.empty:
+            ax.text(0.5, 0.5, "No time-series data", ha="center", va="center", color="#c9d2e3")
+            ax.set_axis_off()
+            self.line_canvas.draw_idle()
+            return
+
+        trend = (
+            timed_df.set_index("datetime")
+            .groupby("emotion", observed=True)
+            .resample("15min")
+            .size()
+            .unstack(level=0, fill_value=0)
+        )
+        if trend.empty:
+            ax.text(0.5, 0.5, "No time-series data", ha="center", va="center", color="#c9d2e3")
+            ax.set_axis_off()
+            self.line_canvas.draw_idle()
+            return
+
+        palette = ["#ff6b6b", "#ffd166", "#4ecdc4", "#5aa9ff", "#c792ea", "#95d5b2"]
+        for idx, emotion in enumerate(trend.columns):
+            ax.plot(
+                trend.index,
+                trend[emotion],
+                label=str(emotion),
+                linewidth=1.7,
+                color=palette[idx % len(palette)],
             )
-            ax.set_axis_off()
-            self.heatmap_canvas.draw_idle()
+
+        ax.set_title("Line")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Events/15m")
+        ax.grid(color="#273240", alpha=0.35, linewidth=0.8)
+        ax.tick_params(axis="x", rotation=20)
+        ax.legend(
+            loc="upper left",
+            fontsize=7,
+            frameon=True,
+            facecolor="#11161d",
+            edgecolor="#2f3b4a",
+            labelcolor="#d7dde8",
+        )
+        self.line_canvas.draw_idle()
+
+    def _update_today_summary(self, view_df):
+        today = pd.Timestamp(datetime.now().date())
+        today_df = view_df.copy()
+        if "date" in today_df.columns:
+            today_df = today_df[today_df["date"] == today]
+        else:
+            today_df = pd.DataFrame()
+
+        if today_df.empty:
+            self.today_time_label.setText("Start: --  End: --  Duration: --")
+            self.today_emotion_label.setText("Today: --")
             return
 
-        sns.heatmap(
-            heatmap_df,
-            ax=ax,
-            cmap="YlOrRd",
-            cbar=True,
-            linewidths=0.3,
-            linecolor="white",
-        )
-        ax.set_title("Class-wise Emotion Heatmap")
-        ax.set_xlabel("Emotions")
-        ax.set_ylabel("Student Names")
-        self.heatmap_canvas.draw_idle()
+        counts = today_df.groupby("emotion", observed=True).size().sort_values(ascending=False)
+        total = int(counts.sum())
+        pct_parts = []
+        for emotion, count in counts.items():
+            pct = (float(count) / float(total) * 100.0) if total else 0.0
+            pct_parts.append(f"{emotion} {pct:.1f}%")
+        self.today_emotion_label.setText("Today: " + " | ".join(pct_parts))
 
-    # ---------------------------------------------------------
-    # ALERT SYSTEM
-    # ---------------------------------------------------------
-    def _update_alert_label(self, df, single_student=None):
-        alert_text = self._find_sadness_alert(df, single_student)
+        timed_today = today_df.dropna(subset=["datetime"]).copy()
+        timed_today["datetime"] = pd.to_datetime(timed_today["datetime"], errors="coerce")
+        timed_today = timed_today.dropna(subset=["datetime"])
+        if timed_today.empty:
+            self.today_time_label.setText("Start: --  End: --  Duration: --")
+            return
+
+        start_dt = timed_today["datetime"].min()
+        end_dt = timed_today["datetime"].max()
+        duration_text = self._format_duration(end_dt - start_dt)
+        self.today_time_label.setText(
+            f"Start: {start_dt.strftime('%H:%M:%S')}  "
+            f"End: {end_dt.strftime('%H:%M:%S')}  "
+            f"Duration: {duration_text}"
+        )
+
+    @staticmethod
+    def _format_duration(delta):
+        total_seconds = int(max(0, delta.total_seconds()))
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        if hours > 0:
+            return f"{hours} h {minutes} min"
+        return f"{minutes} min"
+
+    def _update_alert_label(self, df):
+        alert_text = self._find_sadness_alert(df)
         if alert_text:
             self.alert_label.setText(alert_text)
             self.alert_label.setStyleSheet(
-                "padding: 8px; border-radius: 4px; background-color: #3a1010; color: #ff8a8a;"
+                "padding:6px; border-radius:4px; background-color:#3a1212; color:#ff9c9c;"
             )
         else:
             self.alert_label.setText("No emotional risk detected")
             self.alert_label.setStyleSheet(
-                "padding: 8px; border-radius: 4px; background-color: #103a1b; color: #8bff9b;"
+                "padding:6px; border-radius:4px; background-color:#10351c; color:#8bff9b;"
             )
 
-    def _find_sadness_alert(self, df, single_student=None):
+    def _find_sadness_alert(self, df):
         if df.empty:
             return None
-
         sad_df = df[df["emotion"].astype(str).str.lower() == "sad"].copy()
-        if sad_df.empty:
+        if sad_df.empty or "date" not in sad_df.columns:
             return None
-
-        sad_df = sad_df.dropna(subset=["date"])
-        if sad_df.empty:
-            return None
-
-        sad_df["date"] = pd.to_datetime(sad_df["date"], errors="coerce").dt.normalize()
         sad_df = sad_df.dropna(subset=["date"])
         if sad_df.empty:
             return None
@@ -469,7 +595,6 @@ class EmotionAnalyticsPage(QWidget):
             .sort_values(["student", "date"])
             .reset_index(drop=True)
         )
-
         for student, group in unique_days.groupby("student", observed=True):
             dates = group["date"].tolist()
             streak = 1
@@ -477,52 +602,47 @@ class EmotionAnalyticsPage(QWidget):
                 day_gap = (dates[idx] - dates[idx - 1]).days
                 streak = streak + 1 if day_gap == 1 else 1
                 if streak >= 3:
-                    student_text = str(student)
-                    return f"\u26a0 Alert: {student_text} showing sadness for 3 consecutive days"
-
-        if single_student:
-            return None
+                    return f"Alert: {student} showing sadness for 3 consecutive days"
         return None
 
-    # ---------------------------------------------------------
-    # EMPTY/ERROR STATE
-    # ---------------------------------------------------------
+    def _set_paused_state(self):
+        message = "Motion analytics paused. Enable from Dashboard."
+        self.raw_df = pd.DataFrame()
+        self.analytics_df = pd.DataFrame()
+        self._populate_class_options()
+        self._apply_mode_visibility()
+        self.data_status.setText(message)
+        self.refresh_btn.setEnabled(False)
+        self.today_time_label.setText("Start: --  End: --  Duration: --")
+        self.today_emotion_label.setText("Today: --")
+        self._update_alert_label(pd.DataFrame())
+
+        self._draw_empty(self.bar_fig, self.bar_canvas, message)
+        self._draw_empty(self.pie_fig, self.pie_canvas, "No data")
+        self._draw_empty(self.line_fig, self.line_canvas, "No data")
+
     def _set_empty_data(self, message):
         self.raw_df = pd.DataFrame()
         self.analytics_df = pd.DataFrame()
         self._populate_class_options()
         self._apply_mode_visibility()
         self.data_status.setText(message)
-        self._update_alert_label(pd.DataFrame(), single_student=None)
+        self.today_time_label.setText("Start: --  End: --  Duration: --")
+        self.today_emotion_label.setText("Today: --")
+        self._update_alert_label(pd.DataFrame())
 
-        self.student_fig.clear()
-        ax1 = self.student_fig.add_subplot(111)
-        ax1.text(0.5, 0.5, message, ha="center", va="center")
-        ax1.set_axis_off()
-        self.student_canvas.draw_idle()
+        self._draw_empty(self.bar_fig, self.bar_canvas, message)
+        self._draw_empty(self.pie_fig, self.pie_canvas, "No data")
+        self._draw_empty(self.line_fig, self.line_canvas, "No data")
 
-        self.heatmap_fig.clear()
-        ax2 = self.heatmap_fig.add_subplot(111)
-        ax2.text(0.5, 0.5, "No data available", ha="center", va="center")
-        ax2.set_axis_off()
-        self.heatmap_canvas.draw_idle()
-
-    # ---------------------------------------------------------
-    # KNOWN FACES FALLBACK (MATCH DATABASE PAGE)
-    # ---------------------------------------------------------
     def _get_known_face_classes(self):
         if not self.known_faces_dir.exists():
             return []
-        classes = []
-        for item in sorted(self.known_faces_dir.iterdir()):
-            if item.is_dir():
-                classes.append(item.name)
-        return classes
+        return sorted([p.name for p in self.known_faces_dir.iterdir() if p.is_dir()])
 
     def _get_known_face_students(self, selected_class):
         if not self.known_faces_dir.exists():
             return []
-
         students = set()
         if selected_class and selected_class != "All Classes":
             class_dirs = [self.known_faces_dir / selected_class]
@@ -535,5 +655,4 @@ class EmotionAnalyticsPage(QWidget):
             for file_path in class_dir.iterdir():
                 if file_path.is_file() and file_path.suffix.lower() == ".npy":
                     students.add(file_path.stem)
-
         return sorted(students)

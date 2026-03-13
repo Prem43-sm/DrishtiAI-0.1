@@ -1,4 +1,4 @@
-import os
+﻿import os
 import numpy as np
 
 from PySide6.QtWidgets import (
@@ -24,12 +24,10 @@ class ModelPage(QWidget):
 
         main_layout = QVBoxLayout()
 
-        # 🏷 TITLE
         title = QLabel("Model Performance Score")
         title.setStyleSheet("font-size:18px; font-weight:bold;")
         main_layout.addWidget(title)
 
-        # 📊 TOP METRICS
         self.acc_label = QLabel("Accuracy: -")
         self.prec_label = QLabel("Precision: -")
         self.rec_label = QLabel("Recall: -")
@@ -40,12 +38,10 @@ class ModelPage(QWidget):
         main_layout.addWidget(self.rec_label)
         main_layout.addWidget(self.f1_label)
 
-        # ▶ BUTTON
         self.eval_btn = QPushButton("Evaluate Model")
         self.eval_btn.clicked.connect(self.evaluate_model)
         main_layout.addWidget(self.eval_btn)
 
-        # 📈 CHART AREA
         chart_layout = QHBoxLayout()
 
         self.cm_canvas = FigureCanvas(Figure(figsize=(4, 3)))
@@ -56,7 +52,6 @@ class ModelPage(QWidget):
 
         main_layout.addLayout(chart_layout)
 
-        # 📋 TABLE FOR CLASSIFICATION REPORT
         self.report_table = QTableWidget()
         self.report_table.setColumnCount(5)
         self.report_table.setHorizontalHeaderLabels(
@@ -82,9 +77,15 @@ class ModelPage(QWidget):
 
         self.setLayout(main_layout)
 
-    # =========================================================
-    # 🎯 EVALUATE MODEL
-    # =========================================================
+    def _apply_dark_chart_theme(self, fig, ax):
+        fig.patch.set_facecolor("#111111")
+        ax.set_facecolor("#1b1b1b")
+        ax.tick_params(colors="white")
+        ax.xaxis.label.set_color("white")
+        ax.yaxis.label.set_color("white")
+        ax.title.set_color("white")
+        for spine in ax.spines.values():
+            spine.set_color("#666666")
 
     def evaluate_model(self):
 
@@ -99,26 +100,23 @@ class ModelPage(QWidget):
         self.plot_pie_chart(cm)
         self.populate_report_table(report)
 
-    # =========================================================
-    # 📊 CONFUSION MATRIX
-    # =========================================================
-
     def plot_confusion_matrix(self, cm):
 
         fig = self.cm_canvas.figure
         fig.clear()
 
         ax = fig.add_subplot(111)
+        self._apply_dark_chart_theme(fig, ax)
         im = ax.imshow(cm)
 
         ax.set_title("Confusion Matrix")
-        fig.colorbar(im)
+        cbar = fig.colorbar(im)
+        cbar.ax.yaxis.set_tick_params(color="white")
+        cbar.outline.set_edgecolor("#666666")
+        for tick in cbar.ax.get_yticklabels():
+            tick.set_color("white")
 
         self.cm_canvas.draw()
-
-    # =========================================================
-    # 🥧 PIE CHART
-    # =========================================================
 
     def plot_pie_chart(self, cm):
 
@@ -126,19 +124,23 @@ class ModelPage(QWidget):
         fig.clear()
 
         ax = fig.add_subplot(111)
+        self._apply_dark_chart_theme(fig, ax)
 
         class_totals = cm.sum(axis=1)
 
         labels = ['Angry', 'Fear', 'Happy', 'Sad', 'Surprise']
 
-        ax.pie(class_totals, labels=labels, autopct="%1.1f%%")
+        _, text_labels, text_autopct = ax.pie(
+            class_totals,
+            labels=labels,
+            autopct="%1.1f%%",
+            textprops={"color": "white"},
+        )
+        for text in text_labels + text_autopct:
+            text.set_color("white")
         ax.set_title("Class Distribution")
 
         self.pie_canvas.draw()
-
-    # =========================================================
-    # 📋 TABLE POPULATION
-    # =========================================================
 
     def populate_report_table(self, report_dict):
 
@@ -162,7 +164,6 @@ class ModelPage(QWidget):
 
             row += 1
 
-        # ✅ accuracy row
         acc = report_dict["accuracy"]
 
         self.report_table.setItem(row, 0, QTableWidgetItem("Accuracy"))
@@ -170,7 +171,6 @@ class ModelPage(QWidget):
 
         row += 1
 
-        # macro & weighted avg
         for key in ["macro avg", "weighted avg"]:
 
             data = report_dict[key]

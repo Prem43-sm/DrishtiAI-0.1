@@ -1,10 +1,14 @@
 import os
+import csv
 from datetime import datetime
 
 import pandas as pd
 
 
 class AttendanceManager:
+    ATTENDANCE_COLUMNS = ["Name", "Class", "Subject", "Period", "Time", "Emotion"]
+    EMOTION_COLUMNS = ["Date", "Name", "Class", "Subject", "Period", "Time", "Emotion"]
+
     def __init__(self):
         self.base_dir = "attendance"
         os.makedirs(self.base_dir, exist_ok=True)
@@ -15,6 +19,7 @@ class AttendanceManager:
 
         self.file = None
         self._df_cache = None
+        self._marked_names = set()
 
         # Central emotion analytics file used by Emotion Analytics page.
         self.emotion_file = os.path.join(self.base_dir, "emotion_data.csv")
@@ -24,11 +29,11 @@ class AttendanceManager:
     # FILE SETUP
     # ============================================================
     def _ensure_emotion_file(self):
-        if os.path.exists(self.emotion_file):
+        if os.path.exists(self.emotion_file) and os.path.getsize(self.emotion_file) > 0:
             return
-        pd.DataFrame(
-            columns=["Date", "Name", "Class", "Subject", "Period", "Time", "Emotion"]
-        ).to_csv(self.emotion_file, index=False)
+        with open(self.emotion_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(self.EMOTION_COLUMNS)
 
     # ============================================================
     # SET ACTIVE SESSION  (called by CameraWorker)
@@ -52,13 +57,16 @@ class AttendanceManager:
         self.file = os.path.join(class_dir, f"{today}_P{period}.csv")
 
         if not os.path.exists(self.file):
-            pd.DataFrame(
-                columns=["Name", "Class", "Subject", "Period", "Time", "Emotion"]
-            ).to_csv(self.file, index=False)
+            pd.DataFrame(columns=self.ATTENDANCE_COLUMNS).to_csv(self.file, index=False)
 
         self._df_cache = pd.read_csv(self.file)
-        if "Emotion" not in self._df_cache.columns:
-            self._df_cache["Emotion"] = ""
+        for column in self.ATTENDANCE_COLUMNS:
+            if column not in self._df_cache.columns:
+                self._df_cache[column] = ""
+        self._df_cache = self._df_cache[self.ATTENDANCE_COLUMNS]
+        self._marked_names = set(
+            self._df_cache["Name"].dropna().astype(str).tolist()
+        )
 
         print(f"SESSION -> {class_name} | P{period} | {subject}")
 
@@ -69,6 +77,7 @@ class AttendanceManager:
         self.active_subject = None
         self.file = None
         self._df_cache = None
+        self._marked_names.clear()
         print("SESSION STOPPED")
 
     # ============================================================
@@ -78,48 +87,41 @@ class AttendanceManager:
         if not self.file or self._df_cache is None:
             return False
 
-        if "Name" not in self._df_cache.columns:
-            return False
-
         # already marked in this period
-        if name in self._df_cache["Name"].values:
+        if name in self._marked_names:
             return False
 
         time_now = datetime.now().strftime("%H:%M:%S")
         emotion_text = str(emotion or "")
 
-        new_row = pd.DataFrame(
-            [[
-                name,
-                self.active_class,
-                self.active_subject,
-                self.active_period,
-                time_now,
-                emotion_text,
-            ]],
-            columns=["Name", "Class", "Subject", "Period", "Time", "Emotion"],
-        )
-
-        self._df_cache = pd.concat([self._df_cache, new_row], ignore_index=True)
+        self._df_cache.loc[len(self._df_cache)] = [
+            name,
+            self.active_class,
+            self.active_subject,
+            self.active_period,
+            time_now,
+            emotion_text,
+        ]
+        self._marked_names.add(name)
         self._df_cache.to_csv(self.file, index=False)
         self._append_emotion_row(name, time_now, emotion_text)
         return True
 
     def _append_emotion_row(self, name, time_now, emotion):
         self._ensure_emotion_file()
-        row = pd.DataFrame(
-            [[
-                datetime.now().strftime("%Y-%m-%d"),
-                name,
-                self.active_class,
-                self.active_subject,
-                self.active_period,
-                time_now,
-                emotion,
-            ]],
-            columns=["Date", "Name", "Class", "Subject", "Period", "Time", "Emotion"],
-        )
-        row.to_csv(self.emotion_file, mode="a", header=False, index=False)
+        with open(self.emotion_file, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    datetime.now().strftime("%Y-%m-%d"),
+                    name,
+                    self.active_class,
+                    self.active_subject,
+                    self.active_period,
+                    time_now,
+                    emotion,
+                ]
+            )
 
     # ============================================================
     # LIVE EMOTION SAMPLE (once per second per student from worker)

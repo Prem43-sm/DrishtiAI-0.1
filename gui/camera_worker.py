@@ -1,4 +1,5 @@
 import time
+from threading import Lock
 
 import cv2
 import face_recognition
@@ -26,13 +27,23 @@ CLASS_NAMES = ["Angry", "Fear", "Happy", "Sad", "Surprise"]
 
 class CameraWorker(QThread):
     frame_ready = Signal(QImage, str, str, float, int, str)
+    _shared_model = None
+    _model_lock = Lock()
+    _predict_lock = Lock()
+    _session_refresh_seconds = 2.0
+    _emotion_size = (96, 96)
+    _inv_255 = np.float32(1.0 / 255.0)
 
-    def __init__(self, camera_id=0, camera_name="Camera"):
+    def __init__(self, camera_id=0, camera_name="Camera", process_every_n_frames=2):
         super().__init__()
         self.camera_id = camera_id
         self.camera_name = camera_name
         self.running = True
-        self.process_this_frame = True
+        self.process_every_n_frames = max(1, int(process_every_n_frames))
+        self._frame_counter = 0
+        self._last_session_check_ts = 0.0
+        self._last_name = "Unknown"
+        self._last_emotion = "---"
 
         self.memory = FaceMemory.get_instance()
         self.attendance = AttendanceManager()
@@ -43,55 +54,75 @@ class CameraWorker(QThread):
         self.active_period = None
         self.active_subject = None
 
-        self.model = load_model(EMOTION_MODEL_PATH, compile=False)
+        self.model = self._get_shared_model()
         print("WORKER INIT:", camera_id, camera_name)
 
+    @classmethod
+    def _get_shared_model(cls):
+        with cls._model_lock:
+            if cls._shared_model is None:
+                cls._shared_model = load_model(EMOTION_MODEL_PATH, compile=False)
+        return cls._shared_model
+
     def run(self):
-        cap = cv2.VideoCapture(self.camera_id)
+        cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            return
+
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         prev_time = time.time()
 
         while self.running:
             popup_msg = ""
-            name = "Unknown"
-            emotion = "---"
+            name = self._last_name
+            emotion = self._last_emotion
 
-            class_name, period, subject = get_current_session()
-            if (
-                class_name != self.active_class
-                or period != self.active_period
-                or subject != self.active_subject
-            ):
-                self.active_class = class_name
-                self.active_period = period
-                self.active_subject = subject
-                self.today_attendance.clear()
+            loop_ts = time.time()
+            if (loop_ts - self._last_session_check_ts) >= self._session_refresh_seconds:
+                self._last_session_check_ts = loop_ts
+                class_name, period, subject = get_current_session()
+                if (
+                    class_name != self.active_class
+                    or period != self.active_period
+                    or subject != self.active_subject
+                ):
+                    self.active_class = class_name
+                    self.active_period = period
+                    self.active_subject = subject
+                    self.today_attendance.clear()
 
-                if class_name and period:
-                    self.attendance.set_active_session(class_name, period, subject)
-                    print(f"ACTIVE -> {class_name} | P{period} | {subject}")
-                else:
-                    self.attendance.stop_session()
-                    print("NO ACTIVE SESSION")
+                    if class_name and period:
+                        self.attendance.set_active_session(class_name, period, subject)
+                        print(f"ACTIVE -> {class_name} | P{period} | {subject}")
+                    else:
+                        self.attendance.stop_session()
+                        print("NO ACTIVE SESSION")
 
             ret, frame = cap.read()
             if not ret:
+                time.sleep(0.01)
                 continue
 
-            small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
-            rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-            if self.process_this_frame:
+            should_process = (self._frame_counter % self.process_every_n_frames) == 0
+            if should_process:
+                small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+                rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
                 face_locations = face_recognition.face_locations(rgb_small)
                 face_encodings = face_recognition.face_encodings(rgb_small, face_locations)
+                detections = []
+                emotion_inputs = []
+                emotion_indices = []
 
-                for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-                    name = self.memory.get_name(face_encoding)
+                for idx, ((top, right, bottom, left), face_encoding) in enumerate(
+                    zip(face_locations, face_encodings)
+                ):
+                    detected_name = self.memory.get_name(face_encoding)
 
-                    if name != "Unknown" and self.active_class:
-                        update_location(name, self.camera_name, self.active_class)
+                    if detected_name != "Unknown" and self.active_class:
+                        update_location(detected_name, self.camera_name, self.active_class)
 
                     # Rescale to original frame.
                     top *= 2
@@ -99,44 +130,81 @@ class CameraWorker(QThread):
                     bottom *= 2
                     left *= 2
 
-                    face = frame[top:bottom, left:right]
-                    if face.size != 0:
-                        face_resized = cv2.resize(face, (96, 96)) / 255.0
-                        face_resized = np.reshape(face_resized, (1, 96, 96, 3))
-                        preds = self.model.predict(face_resized, verbose=0)
-                        emotion = CLASS_NAMES[int(np.argmax(preds))]
-
-                    # Per-second live emotion logging for analytics.
-                    if name != "Unknown" and emotion != "---":
-                        now_sec = int(time.time())
-                        last_sec = self.last_emotion_log_second.get(name, -1)
-                        if now_sec != last_sec:
-                            self.attendance.log_emotion_sample(name, emotion)
-                            self.last_emotion_log_second[name] = now_sec
-
-                    # Mark attendance after emotion prediction so emotion gets stored.
-                    if (
-                        name != "Unknown"
-                        and self.active_period
-                        and name not in self.today_attendance
-                    ):
-                        marked = self.attendance.mark(name, emotion)
-                        if marked:
-                            self.today_attendance.add(name)
-                            popup_msg = f"{name} -> P{self.active_period} OK"
-
-                    cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-                    cv2.putText(
-                        frame,
-                        f"{name} - {emotion}",
-                        (left, max(top - 10, 30)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8,
-                        (0, 255, 0),
-                        2,
+                    detections.append(
+                        {
+                            "box": (top, right, bottom, left),
+                            "name": detected_name,
+                            "emotion": "---",
+                        }
                     )
 
-            self.process_this_frame = not self.process_this_frame
+                    face = frame[top:bottom, left:right]
+                    if face.size == 0:
+                        continue
+
+                    face_resized = cv2.resize(
+                        face,
+                        self._emotion_size,
+                        interpolation=cv2.INTER_AREA,
+                    )
+                    face_float = face_resized.astype(np.float32, copy=False)
+                    face_float *= self._inv_255
+                    emotion_inputs.append(face_float)
+                    emotion_indices.append(idx)
+
+                if emotion_inputs:
+                    emotion_batch = np.asarray(emotion_inputs, dtype=np.float32)
+                    with self._predict_lock:
+                        predictions = self.model.predict(emotion_batch, verbose=0)
+                    for det_idx, pred in zip(emotion_indices, predictions):
+                        detections[det_idx]["emotion"] = CLASS_NAMES[int(np.argmax(pred))]
+
+                if detections:
+                    now_sec = int(loop_ts)
+                    for det in detections:
+                        top, right, bottom, left = det["box"]
+                        det_name = det["name"]
+                        det_emotion = det["emotion"]
+
+                        # Per-second live emotion logging for analytics.
+                        if det_name != "Unknown" and det_emotion != "---":
+                            last_sec = self.last_emotion_log_second.get(det_name, -1)
+                            if now_sec != last_sec:
+                                self.attendance.log_emotion_sample(det_name, det_emotion)
+                                self.last_emotion_log_second[det_name] = now_sec
+
+                        # Mark attendance after emotion prediction so emotion gets stored.
+                        if (
+                            det_name != "Unknown"
+                            and self.active_period
+                            and det_name not in self.today_attendance
+                        ):
+                            marked = self.attendance.mark(det_name, det_emotion)
+                            if marked:
+                                self.today_attendance.add(det_name)
+                                popup_msg = f"{det_name} -> P{self.active_period} OK"
+
+                        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+                        cv2.putText(
+                            frame,
+                            f"{det_name} - {det_emotion}",
+                            (left, max(top - 10, 30)),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.8,
+                            (0, 255, 0),
+                            2,
+                        )
+
+                    name = detections[-1]["name"]
+                    emotion = detections[-1]["emotion"]
+                else:
+                    name = "Unknown"
+                    emotion = "---"
+
+                self._last_name = name
+                self._last_emotion = emotion
+
+            self._frame_counter += 1
 
             count = self.attendance.today_count()
             curr_time = time.time()
@@ -170,7 +238,8 @@ class CameraWorker(QThread):
 
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = frame_rgb.shape
-            img = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888)
+            # Copy detaches image memory from NumPy buffer to avoid cross-thread invalid access.
+            img = QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
 
             self.frame_ready.emit(img, name, emotion, fps, count, popup_msg)
 
@@ -178,4 +247,4 @@ class CameraWorker(QThread):
 
     def stop(self):
         self.running = False
-        self.wait()
+        self.wait(3000)

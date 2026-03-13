@@ -28,7 +28,7 @@ class AboutPage(QWidget):
         # 🖼 LOGO
         logo = QLabel()
 
-        logo_path = resource_path("gui/ui/logo.png")   # ✅ FINAL PATH
+        logo_path = resource_path("gui/assets/branding/logo.png")   # ✅ FINAL PATH
 
         pixmap = QPixmap(logo_path)
 
@@ -60,7 +60,7 @@ class AboutPage(QWidget):
         dev.setStyleSheet("font-size:13px;")
 
         # 👩‍🏫 HOD & Guide
-        hod = QLabel(" HOD: Dr Kajal Kiran Gulhare Ma'am ")
+        hod = QLabel(" Guided by: \nHOD: Dr Kajal Kiran Gulhare Ma'am ")
         hod.setAlignment(Qt.AlignCenter)
 
         guide = QLabel(" Guide: Sumati Pathak Ma'am ")
@@ -76,3 +76,5 @@ class AboutPage(QWidget):
         layout.addStretch()
 
         self.setLayout(layout)
+
+

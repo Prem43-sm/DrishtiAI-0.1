@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['gui\\DrishtiAI_Logo.ico'],
+    icon=['gui\\assets\\branding\\DrishtiAI_Logo.ico'],
 )
