@@ -16,6 +16,8 @@ from matplotlib.figure import Figure
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import Callback, ModelCheckpoint
 
+from gui.emotion_model_runtime import DEFAULT_MODEL_PATH, get_dataset_split_dir
+
 
 # ==============================
 # 🧵 TRAINING THREAD
@@ -34,8 +36,8 @@ class TrainingWorker(QThread):
 
     def run(self):
 
-        train_dir = "Final_Dataset/train"
-        val_dir = "Final_Dataset/val"
+        train_dir = get_dataset_split_dir("train")
+        val_dir = get_dataset_split_dir("val")
 
         train_gen = ImageDataGenerator(rescale=1./255)
         val_gen = ImageDataGenerator(rescale=1./255)
@@ -64,7 +66,7 @@ class TrainingWorker(QThread):
 
             tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(128, activation='relu'),
-            tf.keras.layers.Dense(5, activation='softmax')
+            tf.keras.layers.Dense(train.num_classes, activation='softmax')
         ])
 
         model.compile(optimizer="adam",
@@ -147,8 +149,8 @@ class TrainingPage(QWidget):
         self.save_btn = QPushButton("Select Model Save Path")
         self.save_btn.clicked.connect(self.select_path)
 
-        self.save_label = QLabel("best_emotion_model.h5")
-        self.save_path = "best_emotion_model.h5"
+        self.save_label = QLabel(DEFAULT_MODEL_PATH)
+        self.save_path = DEFAULT_MODEL_PATH
 
         form.addRow("Image Size:", self.img_size)
         form.addRow("Batch Size:", self.batch_size)

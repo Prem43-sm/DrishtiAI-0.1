@@ -13,6 +13,8 @@ from face_memory import FaceMemory
 from features.engine.timetable_engine import get_current_session
 from features.tracking.live_tracker import update_location
 from gui.attendance_manager import AttendanceManager
+from gui.emotion_model_runtime import get_preferred_model_path, infer_class_names
+from gui.settings_manager import SettingsManager
 from gui.utils import resource_path
 
 # Landmark predictor fix for packaged/runtime usage.
@@ -21,13 +23,11 @@ predictor_path = resource_path(
 )
 face_recognition.api.pose_predictor_model_location = predictor_path
 
-EMOTION_MODEL_PATH = "best_emotion_model.h5"
-CLASS_NAMES = ["Angry", "Fear", "Happy", "Sad", "Surprise"]
-
-
 class CameraWorker(QThread):
     frame_ready = Signal(QImage, str, str, float, int, str)
     _shared_model = None
+    _shared_model_path = None
+    _shared_class_names = None
     _model_lock = Lock()
     _predict_lock = Lock()
     _session_refresh_seconds = 2.0
@@ -54,15 +54,29 @@ class CameraWorker(QThread):
         self.active_period = None
         self.active_subject = None
 
-        self.model = self._get_shared_model()
+        self.model, self.class_names, self.model_path = self._get_shared_model_bundle()
         print("WORKER INIT:", camera_id, camera_name)
 
     @classmethod
-    def _get_shared_model(cls):
+    def _resolve_model_path(cls):
+        try:
+            configured_path = SettingsManager().load().get("model_path", "")
+        except Exception:
+            configured_path = ""
+        return get_preferred_model_path(configured_path)
+
+    @classmethod
+    def _get_shared_model_bundle(cls):
         with cls._model_lock:
-            if cls._shared_model is None:
-                cls._shared_model = load_model(EMOTION_MODEL_PATH, compile=False)
-        return cls._shared_model
+            model_path = cls._resolve_model_path()
+            if cls._shared_model is None or cls._shared_model_path != model_path:
+                cls._shared_model = load_model(model_path, compile=False)
+                cls._shared_model_path = model_path
+                cls._shared_class_names = infer_class_names(
+                    model=cls._shared_model,
+                    model_path=model_path,
+                )
+        return cls._shared_model, list(cls._shared_class_names or []), cls._shared_model_path
 
     def run(self):
         cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
@@ -157,7 +171,12 @@ class CameraWorker(QThread):
                     with self._predict_lock:
                         predictions = self.model.predict(emotion_batch, verbose=0)
                     for det_idx, pred in zip(emotion_indices, predictions):
-                        detections[det_idx]["emotion"] = CLASS_NAMES[int(np.argmax(pred))]
+                        pred_idx = int(np.argmax(pred))
+                        if 0 <= pred_idx < len(self.class_names):
+                            label = self.class_names[pred_idx]
+                        else:
+                            label = f"Class {pred_idx + 1}"
+                        detections[det_idx]["emotion"] = label
 
                 if detections:
                     now_sec = int(loop_ts)

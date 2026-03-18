@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from camera_worker import CameraWorker
+from gui.emotion_model_runtime import get_model_display_name
 from settings_manager import SettingsManager
 
 
@@ -286,7 +287,13 @@ class DashboardPage(QWidget):
             worker.start()
             self.workers[cam_id] = worker
 
-        self.model_label.setText("Model: Loaded")
+        loaded_worker = next(iter(self.workers.values()), None)
+        if loaded_worker is not None:
+            self.model_label.setText(
+                f"Model: {get_model_display_name(loaded_worker.model_path)}"
+            )
+        else:
+            self.model_label.setText("Model: Loaded")
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self._update_camera_button_label()

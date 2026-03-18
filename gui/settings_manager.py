@@ -2,7 +2,8 @@ import json
 import os
 from copy import deepcopy
 
-from utils import resource_path
+from gui.emotion_model_runtime import DEFAULT_MODEL_PATH
+from gui.utils import resource_path
 
 
 SETTINGS_FILE = resource_path("settings.json")
@@ -15,7 +16,7 @@ default_settings = {
     "process_frame": 2,
     "face_tolerance": 0.5,
     "auto_attendance": True,
-    "model_path": "best_emotion_model.h5",
+    "model_path": DEFAULT_MODEL_PATH,
     "auto_load_model": True,
     "attendance_path": "attendance",
     "course_name": "MSc-IT",

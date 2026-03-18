@@ -5,7 +5,7 @@ a = Analysis(
     ['gui\\main_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('gui', 'gui'), ('known_faces', 'known_faces'), ('attendance', 'attendance'), ('reports', 'reports'), ('snapshots', 'snapshots'), ('best_emotion_model.h5', '.'), ('face_recognition_models', 'face_recognition_models')],
+    datas=[('gui', 'gui'), ('known_faces', 'known_faces'), ('attendance', 'attendance'), ('reports', 'reports'), ('snapshots', 'snapshots'), ('New_1_best_emotion_model.h5', '.'), ('best_emotion_model.h5', '.'), ('face_recognition_models', 'face_recognition_models')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

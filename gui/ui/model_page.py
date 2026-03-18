@@ -1,32 +1,42 @@
-﻿import os
 import numpy as np
-
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton,
-    QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView
-)
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from PySide6.QtWidgets import (
+    QHeaderView,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from model_metrics import ModelMetrics
+from gui.emotion_model_runtime import get_model_display_name
+from gui.model_metrics import ModelMetrics
+from gui.settings_manager import SettingsManager
 
 
 class ModelPage(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.metrics = ModelMetrics(
-            model_path="best_emotion_model.h5",
-            test_dir="Final_Dataset/test"
-        )
+        self.settings = SettingsManager()
+        self.metrics = None
+        self.class_names = []
 
         main_layout = QVBoxLayout()
 
         title = QLabel("Model Performance Score")
         title.setStyleSheet("font-size:18px; font-weight:bold;")
         main_layout.addWidget(title)
+
+        self.model_info_label = QLabel("Model: --")
+        self.dataset_info_label = QLabel("Dataset: --")
+        main_layout.addWidget(self.model_info_label)
+        main_layout.addWidget(self.dataset_info_label)
 
         self.acc_label = QLabel("Accuracy: -")
         self.prec_label = QLabel("Precision: -")
@@ -57,24 +67,23 @@ class ModelPage(QWidget):
         self.report_table.setHorizontalHeaderLabels(
             ["Class", "Precision", "Recall", "F1-Score", "Support"]
         )
-
         self.report_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-
-        self.report_table.setStyleSheet("""
-        QTableWidget {
-            background-color: #111;
-            color: white;
-            gridline-color: #444;
-        }
-        QHeaderView::section {
-            background-color: #222;
-            color: white;
-            font-weight: bold;
-        }
-        """)
+        self.report_table.setStyleSheet(
+            """
+            QTableWidget {
+                background-color: #111;
+                color: white;
+                gridline-color: #444;
+            }
+            QHeaderView::section {
+                background-color: #222;
+                color: white;
+                font-weight: bold;
+            }
+            """
+        )
 
         main_layout.addWidget(self.report_table)
-
         self.setLayout(main_layout)
 
     def _apply_dark_chart_theme(self, fig, ax):
@@ -88,9 +97,21 @@ class ModelPage(QWidget):
             spine.set_color("#666666")
 
     def evaluate_model(self):
+        settings = self.settings.load()
+        model_path = settings.get("model_path", "")
 
-        acc, prec, rec, f1, cm, report = self.metrics.evaluate()
+        try:
+            self.metrics = ModelMetrics(model_path=model_path)
+            self.class_names = list(self.metrics.class_names)
+            acc, prec, rec, f1, cm, report = self.metrics.evaluate()
+        except Exception as exc:
+            QMessageBox.warning(self, "Evaluation Error", str(exc))
+            return
 
+        self.model_info_label.setText(
+            f"Model: {get_model_display_name(self.metrics.model_path)}"
+        )
+        self.dataset_info_label.setText(f"Dataset: {self.metrics.test_dir}")
         self.acc_label.setText(f"Accuracy: {acc:.4f}")
         self.prec_label.setText(f"Precision: {prec:.4f}")
         self.rec_label.setText(f"Recall: {rec:.4f}")
@@ -101,7 +122,6 @@ class ModelPage(QWidget):
         self.populate_report_table(report)
 
     def plot_confusion_matrix(self, cm):
-
         fig = self.cm_canvas.figure
         fig.clear()
 
@@ -110,16 +130,23 @@ class ModelPage(QWidget):
         im = ax.imshow(cm)
 
         ax.set_title("Confusion Matrix")
+        if self.class_names:
+            indices = np.arange(len(self.class_names))
+            ax.set_xticks(indices)
+            ax.set_yticks(indices)
+            ax.set_xticklabels(self.class_names, rotation=45, ha="right")
+            ax.set_yticklabels(self.class_names)
+
         cbar = fig.colorbar(im)
         cbar.ax.yaxis.set_tick_params(color="white")
         cbar.outline.set_edgecolor("#666666")
         for tick in cbar.ax.get_yticklabels():
             tick.set_color("white")
 
+        fig.tight_layout()
         self.cm_canvas.draw()
 
     def plot_pie_chart(self, cm):
-
         fig = self.pie_canvas.figure
         fig.clear()
 
@@ -127,8 +154,7 @@ class ModelPage(QWidget):
         self._apply_dark_chart_theme(fig, ax)
 
         class_totals = cm.sum(axis=1)
-
-        labels = ['Angry', 'Fear', 'Happy', 'Sad', 'Surprise']
+        labels = self.class_names or [f"Class {idx + 1}" for idx in range(len(class_totals))]
 
         _, text_labels, text_autopct = ax.pie(
             class_totals,
@@ -140,19 +166,19 @@ class ModelPage(QWidget):
             text.set_color("white")
         ax.set_title("Class Distribution")
 
+        fig.tight_layout()
         self.pie_canvas.draw()
 
     def populate_report_table(self, report_dict):
-
         classes = [
-            c for c in report_dict.keys()
-            if c not in ("accuracy", "macro avg", "weighted avg")
+            name
+            for name in report_dict.keys()
+            if name not in ("accuracy", "macro avg", "weighted avg")
         ]
 
         self.report_table.setRowCount(len(classes) + 3)
 
         row = 0
-
         for cls in classes:
             data = report_dict[cls]
 
@@ -161,18 +187,14 @@ class ModelPage(QWidget):
             self.report_table.setItem(row, 2, QTableWidgetItem(f"{data['recall']:.2f}"))
             self.report_table.setItem(row, 3, QTableWidgetItem(f"{data['f1-score']:.2f}"))
             self.report_table.setItem(row, 4, QTableWidgetItem(str(int(data['support']))))
-
             row += 1
 
         acc = report_dict["accuracy"]
-
         self.report_table.setItem(row, 0, QTableWidgetItem("Accuracy"))
         self.report_table.setItem(row, 3, QTableWidgetItem(f"{acc:.2f}"))
 
         row += 1
-
         for key in ["macro avg", "weighted avg"]:
-
             data = report_dict[key]
 
             self.report_table.setItem(row, 0, QTableWidgetItem(key))
@@ -180,5 +202,4 @@ class ModelPage(QWidget):
             self.report_table.setItem(row, 2, QTableWidgetItem(f"{data['recall']:.2f}"))
             self.report_table.setItem(row, 3, QTableWidgetItem(f"{data['f1-score']:.2f}"))
             self.report_table.setItem(row, 4, QTableWidgetItem(str(int(data['support']))))
-
             row += 1

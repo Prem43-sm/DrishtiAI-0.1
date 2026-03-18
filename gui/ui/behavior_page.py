@@ -24,6 +24,7 @@ except Exception:
     QAudioSource = None
     QMediaDevices = None
 
+from gui.emotion_model_runtime import get_misbehavior_alert_emotions
 from features.multi_camera.multi_camera_manager import MultiCameraManager
 from features.tracking.live_tracker import get_all_locations
 
@@ -45,6 +46,7 @@ class BehaviorPage(QWidget):
         self.snapshot_cooldown_sec = 8
         self.last_alert_by_person = {}
         self.alert_cooldown_sec = 6
+        self.alert_emotions = get_misbehavior_alert_emotions()
 
         self._build_ui()
 
@@ -300,7 +302,7 @@ class BehaviorPage(QWidget):
             )
         )
 
-        if name != "Unknown" and emotion in {"Angry", "Fear"}:
+        if name != "Unknown" and emotion in self.alert_emotions:
             now_ts = datetime.now().timestamp()
             prev_ts = self.last_alert_by_person.get(name, 0.0)
             if (now_ts - prev_ts) < self.alert_cooldown_sec:

@@ -16,8 +16,10 @@ face_env/
 *.h5
 face_recognition_models/
 Data/
+DataSetssss/
 Processed_Data/
 Final_Dataset/
+combined_dataset_6class_high_accuracy/
 
 # Runtime/generated outputs
 attendance/
