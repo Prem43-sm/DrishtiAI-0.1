@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import Callback, ModelCheckpoint
 
-from gui.emotion_model_runtime import DEFAULT_MODEL_PATH, get_dataset_split_dir
+from gui.emotion_model_runtime import DEFAULT_TRAINING_MODEL_PATH, get_dataset_split_dir
 
 
 # ==============================
@@ -149,8 +149,8 @@ class TrainingPage(QWidget):
         self.save_btn = QPushButton("Select Model Save Path")
         self.save_btn.clicked.connect(self.select_path)
 
-        self.save_label = QLabel(DEFAULT_MODEL_PATH)
-        self.save_path = DEFAULT_MODEL_PATH
+        self.save_label = QLabel(DEFAULT_TRAINING_MODEL_PATH)
+        self.save_path = DEFAULT_TRAINING_MODEL_PATH
 
         form.addRow("Image Size:", self.img_size)
         form.addRow("Batch Size:", self.batch_size)

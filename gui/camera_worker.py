@@ -9,11 +9,12 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 from tensorflow.keras.models import load_model
 
-from face_memory import FaceMemory
 from features.engine.timetable_engine import get_current_session
 from features.tracking.live_tracker import update_location
 from gui.attendance_manager import AttendanceManager
+from gui.camera_backend import open_camera_capture
 from gui.emotion_model_runtime import get_preferred_model_path, infer_class_names
+from gui.face_memory import FaceMemory
 from gui.settings_manager import SettingsManager
 from gui.utils import resource_path
 
@@ -66,6 +67,18 @@ class CameraWorker(QThread):
         return get_preferred_model_path(configured_path)
 
     @classmethod
+    def reset_shared_model(cls):
+        with cls._model_lock:
+            cls._shared_model = None
+            cls._shared_model_path = None
+            cls._shared_class_names = None
+
+    @classmethod
+    def reload_shared_model(cls):
+        cls.reset_shared_model()
+        return cls._get_shared_model_bundle()
+
+    @classmethod
     def _get_shared_model_bundle(cls):
         with cls._model_lock:
             model_path = cls._resolve_model_path()
@@ -79,10 +92,11 @@ class CameraWorker(QThread):
         return cls._shared_model, list(cls._shared_class_names or []), cls._shared_model_path
 
     def run(self):
-        cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
-        if not cap.isOpened():
+        cap, backend_name, _ = open_camera_capture(self.camera_id)
+        if cap is None:
             return
 
+        print(f"CAMERA OPENED: {self.camera_id} via {backend_name}")
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

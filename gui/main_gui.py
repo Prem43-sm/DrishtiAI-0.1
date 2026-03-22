@@ -11,22 +11,22 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QTimer
 
-from utils import resource_path
-from login_dialog import LoginDialog
+from gui.utils import resource_path
+from gui.login_dialog import LoginDialog
 
 # pages
-from ui.dashboard_page import DashboardPage
-from ui.attendance_page import AttendancePage
-from ui.model_page import ModelPage
-from ui.training_page import TrainingPage
-from ui.settings_page import SettingsPage
-from ui.about_page import AboutPage
-from ui.tracking_page import TrackingPage
-from ui.timetable_page import TimeTablePage
-from ui.database_page import DatabasePage
-from ui.behavior_page import BehaviorPage
-from ui.multi_camera_view_page import MultiCameraViewPage
-from ui.emotion_analytics import EmotionAnalyticsPage
+from gui.ui.dashboard_page import DashboardPage
+from gui.ui.attendance_page import AttendancePage
+from gui.ui.model_page import ModelPage
+from gui.ui.training_page import TrainingPage
+from gui.ui.settings_page import SettingsPage
+from gui.ui.about_page import AboutPage
+from gui.ui.tracking_page import TrackingPage
+from gui.ui.timetable_page import TimeTablePage
+from gui.ui.database_page import DatabasePage
+from gui.ui.behavior_page import BehaviorPage
+from gui.ui.multi_camera_view_page import MultiCameraViewPage
+from gui.ui.emotion_analytics import EmotionAnalyticsPage
 
 # ⭐ TIMETABLE ENGINE
 from features.engine.timetable_engine import TimeTableEngine

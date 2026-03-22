@@ -1,6 +1,8 @@
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QLineEdit,
-    QPushButton, QHBoxLayout, QTableWidget, QTableWidgetItem
+    QPushButton, QHBoxLayout, QTableWidget, QTableWidgetItem, QComboBox
 )
 from PySide6.QtCore import QTimer
 from features.tracking.live_tracker import get_all_locations, get_location
@@ -9,6 +11,10 @@ from features.tracking.live_tracker import get_all_locations, get_location
 class TrackingPage(QWidget):
     def __init__(self):
         super().__init__()
+
+        self.base_dir = Path(__file__).resolve().parents[2]
+        self.known_faces_dir = self.base_dir / "known_faces"
+        self.attendance_dir = self.base_dir / "attendance"
 
         layout = QVBoxLayout()
 
@@ -22,8 +28,9 @@ class TrackingPage(QWidget):
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Enter Name")
 
-        self.class_input = QLineEdit()
-        self.class_input.setPlaceholderText("Enter Class")
+        self.class_input = QComboBox()
+        self.class_input.setEditable(False)
+        self._populate_class_options()
 
         self.search_btn = QPushButton("Track")
 
@@ -53,6 +60,36 @@ class TrackingPage(QWidget):
         self.timer.start(1000)
 
         self.search_btn.clicked.connect(self.search_student)
+
+    def _discover_classes(self):
+        classes = set()
+        for root in (self.known_faces_dir, self.attendance_dir):
+            if not root.exists():
+                continue
+            for item in root.iterdir():
+                if item.is_dir():
+                    classes.add(item.name)
+        return sorted(classes)
+
+    def _populate_class_options(self):
+        current = self.class_input.currentText().strip() if hasattr(self, "class_input") else ""
+        classes = self._discover_classes()
+
+        self.class_input.blockSignals(True)
+        self.class_input.clear()
+        self.class_input.setEnabled(bool(classes))
+
+        if classes:
+            self.class_input.addItem("Select Class")
+            self.class_input.addItems(classes)
+            if current and current in classes:
+                self.class_input.setCurrentText(current)
+            else:
+                self.class_input.setCurrentIndex(0)
+        else:
+            self.class_input.addItem("No Classes")
+
+        self.class_input.blockSignals(False)
 
     # ---------------- SEARCH MODE ----------------
     def search_student(self):

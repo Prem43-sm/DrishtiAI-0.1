@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
 )
 
-from auth_manager import AuthManager
+from gui.auth_manager import AuthManager
 
 
 class LoginDialog(QDialog):

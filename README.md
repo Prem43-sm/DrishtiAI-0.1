@@ -8,9 +8,11 @@ It provides live camera-based monitoring with attendance tracking, multi-camera 
 - Login-protected desktop app
 - Live face tracking
 - Multi-camera view
+- Camera backend probing for more reliable webcam detection on Windows
 - Timetable-based auto attendance
 - Attendance management and exports
 - Emotion analytics dashboard
+- Runtime emotion model reload support
 - Noise and misbehavior monitoring page
 - Database/records page
 - Model score/performance page
@@ -31,6 +33,7 @@ It provides live camera-based monitoring with attendance tracking, multi-camera 
 DrishtiAI 0.1/
 ├─ gui/                        # Main GUI app and UI pages
 │  ├─ main_gui.py              # App entry point
+│  ├─ camera_backend.py        # Camera backend probing/helpers
 │  ├─ ui/                      # Dashboard, tracking, attendance, etc.
 │  ├─ users.json               # Login users (hashed passwords)
 │  └─ settings.json            # GUI settings (optional)
@@ -131,6 +134,11 @@ Important keys include:
 - `auto_attendance`
 - `cameras` (multi-camera config)
 
+Current defaults in this branch target higher quality capture:
+
+- `resolution`: `1920x1080`
+- `fps`: `60`
+
 ## How to Use (Typical Flow)
 
 1. Run setup once: `setup_drishtiai.bat`
@@ -166,6 +174,9 @@ Required output for DrishtiAI runtime:
 
 - Emotion model file in project root (`.h5`)
 - Preferred name: `best_emotion_model.h5`
+
+This code repository intentionally does not include the emotion training pipeline or image datasets.
+Keep training data and preparation artifacts outside this repo, and use the dedicated training repository for dataset prep/training work.
 
 ## Manual Run (Optional)
 
@@ -203,4 +214,4 @@ or
 ## Notes
 
 - This project is currently Windows-focused because setup/run are provided as `.bat` scripts.
-- Keep virtual environments and large model files out of version control when sharing code.
+- Keep virtual environments, large model files, image datasets, and local training/pipeline folders out of version control when sharing code.

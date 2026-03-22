@@ -2,6 +2,7 @@ import numpy as np
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
@@ -19,6 +20,33 @@ from gui.model_metrics import ModelMetrics
 from gui.settings_manager import SettingsManager
 
 
+class EvaluationWorker(QThread):
+    result_ready = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, model_path):
+        super().__init__()
+        self.model_path = model_path
+
+    def run(self):
+        try:
+            metrics = ModelMetrics(model_path=self.model_path)
+            acc, prec, rec, f1, cm, report = metrics.evaluate()
+            self.result_ready.emit(
+                {
+                    "metrics": metrics,
+                    "acc": acc,
+                    "prec": prec,
+                    "rec": rec,
+                    "f1": f1,
+                    "cm": cm,
+                    "report": report,
+                }
+            )
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
 class ModelPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -26,6 +54,7 @@ class ModelPage(QWidget):
         self.settings = SettingsManager()
         self.metrics = None
         self.class_names = []
+        self.worker = None
 
         main_layout = QVBoxLayout()
 
@@ -97,29 +126,44 @@ class ModelPage(QWidget):
             spine.set_color("#666666")
 
     def evaluate_model(self):
+        if self.worker is not None and self.worker.isRunning():
+            return
+
         settings = self.settings.load()
         model_path = settings.get("model_path", "")
+        self.eval_btn.setEnabled(False)
+        self.eval_btn.setText("Evaluating...")
 
-        try:
-            self.metrics = ModelMetrics(model_path=model_path)
-            self.class_names = list(self.metrics.class_names)
-            acc, prec, rec, f1, cm, report = self.metrics.evaluate()
-        except Exception as exc:
-            QMessageBox.warning(self, "Evaluation Error", str(exc))
-            return
+        self.worker = EvaluationWorker(model_path)
+        self.worker.result_ready.connect(self._apply_evaluation_result)
+        self.worker.error.connect(self._handle_evaluation_error)
+        self.worker.finished.connect(self._finish_evaluation)
+        self.worker.start()
+
+    def _apply_evaluation_result(self, payload):
+        self.metrics = payload["metrics"]
+        self.class_names = list(self.metrics.class_names)
 
         self.model_info_label.setText(
             f"Model: {get_model_display_name(self.metrics.model_path)}"
         )
         self.dataset_info_label.setText(f"Dataset: {self.metrics.test_dir}")
-        self.acc_label.setText(f"Accuracy: {acc:.4f}")
-        self.prec_label.setText(f"Precision: {prec:.4f}")
-        self.rec_label.setText(f"Recall: {rec:.4f}")
-        self.f1_label.setText(f"F1 Score: {f1:.4f}")
+        self.acc_label.setText(f"Accuracy: {payload['acc']:.4f}")
+        self.prec_label.setText(f"Precision: {payload['prec']:.4f}")
+        self.rec_label.setText(f"Recall: {payload['rec']:.4f}")
+        self.f1_label.setText(f"F1 Score: {payload['f1']:.4f}")
 
-        self.plot_confusion_matrix(cm)
-        self.plot_pie_chart(cm)
-        self.populate_report_table(report)
+        self.plot_confusion_matrix(payload["cm"])
+        self.plot_pie_chart(payload["cm"])
+        self.populate_report_table(payload["report"])
+
+    def _handle_evaluation_error(self, message):
+        QMessageBox.warning(self, "Evaluation Error", message)
+
+    def _finish_evaluation(self):
+        self.eval_btn.setEnabled(True)
+        self.eval_btn.setText("Evaluate Model")
+        self.worker = None
 
     def plot_confusion_matrix(self, cm):
         fig = self.cm_canvas.figure

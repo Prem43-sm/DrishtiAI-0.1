@@ -1,3 +1,4 @@
+import calendar
 from datetime import datetime
 from pathlib import Path
 import re
@@ -175,7 +176,7 @@ class EmotionAnalyticsPage(QWidget):
         df["emotion"] = df["emotion"].astype("category")
         df["class"] = df["class"].astype("category")
 
-        self.raw_df = df.copy()
+        self.raw_df = df
         self.analytics_df = df
         self._populate_class_options()
         self._apply_mode_visibility()
@@ -335,9 +336,12 @@ class EmotionAnalyticsPage(QWidget):
 
         data_classes = []
         if not self.analytics_df.empty:
-            data_classes = self.analytics_df["class"].astype(str).unique().tolist()
-        self.known_face_classes = self._get_known_face_classes()
-        classes = sorted(set(data_classes) | set(self.known_face_classes))
+            data_classes = self._clean_class_names(
+                self.analytics_df["class"].astype(str).unique().tolist()
+            )
+        current_classes = self._get_current_classes()
+        self.known_face_classes = current_classes
+        classes = current_classes or data_classes
         self.class_selector.addItems(classes)
 
         if current_class and current_class in classes:
@@ -467,38 +471,47 @@ class EmotionAnalyticsPage(QWidget):
         ax = self.line_fig.add_subplot(111)
         self._style_axes(ax)
 
-        if df.empty or "datetime" not in df.columns:
-            ax.text(0.5, 0.5, "No time-series data", ha="center", va="center", color="#c9d2e3")
+        if df.empty or "date" not in df.columns:
+            ax.text(0.5, 0.5, "No current-month data", ha="center", va="center", color="#c9d2e3")
             ax.set_axis_off()
             self.line_canvas.draw_idle()
             return
 
-        timed_df = df.dropna(subset=["datetime"]).copy()
-        timed_df["datetime"] = pd.to_datetime(timed_df["datetime"], errors="coerce")
-        timed_df = timed_df.dropna(subset=["datetime"])
-        if timed_df.empty:
-            ax.text(0.5, 0.5, "No time-series data", ha="center", va="center", color="#c9d2e3")
+        today = pd.Timestamp(datetime.now().date())
+        month_mask = (
+            df["date"].notna()
+            & (df["date"].dt.year == today.year)
+            & (df["date"].dt.month == today.month)
+        )
+        month_df = df.loc[month_mask, ["date", "emotion"]]
+        if month_df.empty:
+            ax.text(0.5, 0.5, "No current-month data", ha="center", va="center", color="#c9d2e3")
             ax.set_axis_off()
             self.line_canvas.draw_idle()
             return
 
         trend = (
-            timed_df.set_index("datetime")
-            .groupby("emotion", observed=True)
-            .resample("15min")
+            month_df.groupby(["date", "emotion"], observed=True)
             .size()
-            .unstack(level=0, fill_value=0)
+            .unstack(fill_value=0)
+            .sort_index()
         )
         if trend.empty:
-            ax.text(0.5, 0.5, "No time-series data", ha="center", va="center", color="#c9d2e3")
+            ax.text(0.5, 0.5, "No current-month data", ha="center", va="center", color="#c9d2e3")
             ax.set_axis_off()
             self.line_canvas.draw_idle()
             return
 
+        days_in_month = calendar.monthrange(today.year, today.month)[1]
+        day_index = pd.Index(range(1, days_in_month + 1), name="day")
+        trend.index = trend.index.day
+        trend = trend.groupby(level=0, sort=True).sum().reindex(day_index, fill_value=0)
+
         palette = ["#ff6b6b", "#ffd166", "#4ecdc4", "#5aa9ff", "#c792ea", "#95d5b2"]
+        x_values = trend.index.to_list()
         for idx, emotion in enumerate(trend.columns):
             ax.plot(
-                trend.index,
+                x_values,
                 trend[emotion],
                 label=str(emotion),
                 linewidth=1.7,
@@ -506,10 +519,17 @@ class EmotionAnalyticsPage(QWidget):
             )
 
         ax.set_title("Line")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Events/15m")
+        ax.set_xlabel("Day")
+        ax.set_ylabel("Events/Day")
         ax.grid(color="#273240", alpha=0.35, linewidth=0.8)
-        ax.tick_params(axis="x", rotation=20)
+        tick_step = 1 if days_in_month <= 16 else 2 if days_in_month <= 24 else 3
+        tick_positions = list(range(1, days_in_month + 1, tick_step))
+        if tick_positions[-1] != days_in_month:
+            tick_positions.append(days_in_month)
+        ax.set_xlim(1, days_in_month)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels([str(day) for day in tick_positions])
+        ax.tick_params(axis="x", rotation=0)
         ax.legend(
             loc="upper left",
             fontsize=7,
@@ -639,6 +659,25 @@ class EmotionAnalyticsPage(QWidget):
         if not self.known_faces_dir.exists():
             return []
         return sorted([p.name for p in self.known_faces_dir.iterdir() if p.is_dir()])
+
+    def _get_current_classes(self):
+        classes = set(self._get_known_face_classes())
+        if self.attendance_dir.exists():
+            classes.update(p.name for p in self.attendance_dir.iterdir() if p.is_dir())
+        return self._clean_class_names(classes)
+
+    @staticmethod
+    def _clean_class_names(values):
+        cleaned = []
+        seen = set()
+        for value in values:
+            name = str(value).strip()
+            if not name or name.lower() in {"nan", "none", "null"}:
+                continue
+            if name not in seen:
+                cleaned.append(name)
+                seen.add(name)
+        return sorted(cleaned)
 
     def _get_known_face_students(self, selected_class):
         if not self.known_faces_dir.exists():

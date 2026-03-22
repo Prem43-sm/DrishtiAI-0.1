@@ -206,7 +206,11 @@ class BehaviorPage(QWidget):
             self.status_label.setText("Status: Monitoring is already running")
             return
 
-        self.cam_manager.start_all()
+        try:
+            self.cam_manager.start_all()
+        except Exception as exc:
+            self.status_label.setText(f"Status: {exc}")
+            return
 
         if self.cam_manager.workers:
             self.worker = self.cam_manager.workers[0]

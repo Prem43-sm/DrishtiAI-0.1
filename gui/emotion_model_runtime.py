@@ -8,6 +8,7 @@ from gui.utils import resource_path
 LEGACY_CLASS_NAMES = ["Angry", "Fear", "Happy", "Sad", "Surprise"]
 DEFAULT_CLASS_NAMES = ["Ahegao", "Angry", "Happy", "Neutral", "Sad", "Surprise"]
 DEFAULT_MODEL_PATH = "New_1_best_emotion_model.h5"
+DEFAULT_TRAINING_MODEL_PATH = "trained_emotion_model.h5"
 LEGACY_MODEL_PATH = "best_emotion_model.h5"
 LEGACY_DATASET_ROOT = "Final_Dataset"
 SIX_CLASS_DATASET_ROOTS = [
@@ -45,11 +46,23 @@ def resolve_existing_path(path):
 
 
 def get_preferred_model_path(configured_path=None):
-    for candidate in (configured_path, DEFAULT_MODEL_PATH, LEGACY_MODEL_PATH):
+    configured_text = str(configured_path or "").strip()
+    if configured_text:
+        resolved = resolve_project_path(configured_text)
+        if os.path.exists(resolved):
+            return resolved
+        raise FileNotFoundError(f"Configured model file not found: {resolved}")
+
+    for candidate in (DEFAULT_MODEL_PATH, LEGACY_MODEL_PATH):
         resolved = resolve_existing_path(candidate)
         if resolved:
             return resolved
-    return resolve_project_path(configured_path or DEFAULT_MODEL_PATH)
+
+    raise FileNotFoundError(
+        "No emotion model file was found. "
+        f"Checked: {resolve_project_path(DEFAULT_MODEL_PATH)} and "
+        f"{resolve_project_path(LEGACY_MODEL_PATH)}"
+    )
 
 
 def _manifest_candidates(model_path=None):

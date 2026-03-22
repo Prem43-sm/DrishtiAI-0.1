@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
 )
 
-from settings_manager import SettingsManager, default_settings
+from gui.emotion_model_runtime import resolve_project_path
+from gui.settings_manager import SettingsManager, default_settings
 
 
 class SettingsPage(QWidget):
@@ -162,6 +163,8 @@ class SettingsPage(QWidget):
     def _validate(self, data):
         if not data["model_path"]:
             return False, "Model path cannot be empty."
+        if not os.path.exists(resolve_project_path(data["model_path"])):
+            return False, "Model file does not exist."
         if not data["attendance_path"]:
             return False, "Attendance folder cannot be empty."
         if not data["snapshot_path"]:

@@ -11,7 +11,8 @@ import cv2
 import face_recognition
 from datetime import datetime
 from functools import partial
-from face_memory import FaceMemory
+
+from gui.face_memory import FaceMemory
 
 
 class ReportWorker(QThread):

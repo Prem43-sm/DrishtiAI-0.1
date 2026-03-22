@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gui.camera_backend import open_camera_capture, scan_camera_ids
+
 
 class CameraPreviewWorker(QThread):
     frame_ready = Signal(int, QImage)
@@ -27,8 +29,8 @@ class CameraPreviewWorker(QThread):
         self.running = True
 
     def run(self):
-        cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)
-        if not cap.isOpened():
+        cap, _, _ = open_camera_capture(self.camera_id)
+        if cap is None:
             self.camera_error.emit(self.camera_id, "Camera open failed")
             return
 
@@ -169,15 +171,7 @@ class MultiCameraViewPage(QWidget):
         self.camera_labels.clear()
 
     def _scan_connected_cameras(self):
-        found = []
-        for idx in range(self.max_scan):
-            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-            if cap.isOpened():
-                ok, _ = cap.read()
-                if ok:
-                    found.append(idx)
-            cap.release()
-        return found
+        return scan_camera_ids(self.max_scan)
 
     def refresh_cameras(self):
         self.stop_preview()

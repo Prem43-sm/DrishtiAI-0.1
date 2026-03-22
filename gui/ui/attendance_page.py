@@ -74,6 +74,8 @@ class AttendancePage(QWidget):
         main_layout.addWidget(self.table)
 
         self.setLayout(main_layout)
+        self.active_class = ""
+        self.active_period = None
 
     # ---------------------------------------------------------
     # CLASS LIST
@@ -263,6 +265,19 @@ class AttendancePage(QWidget):
             self.current_view_df["Name"].astype(str).str.lower().str.contains(text)
         ]
         self._render_table(filtered)
+
+    def set_active_class(self, class_name, period=None):
+        self.active_class = str(class_name or "").strip()
+        self.active_period = period
+        if not self.active_class:
+            return
+
+        if self.class_selector.findText(self.active_class) == -1:
+            self.class_selector.addItem(self.active_class)
+        self.class_selector.setCurrentText(self.active_class)
+
+    def stop_auto_attendance(self):
+        self.active_period = None
 
     # ---------------------------------------------------------
     # MONTHLY EXPORT (kept)

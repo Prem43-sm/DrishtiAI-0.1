@@ -4,7 +4,7 @@ from datetime import datetime
 from functools import partial
 
 import cv2
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -21,9 +21,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from camera_worker import CameraWorker
+from gui.camera_backend import scan_camera_ids
+from gui.camera_worker import CameraWorker
 from gui.emotion_model_runtime import get_model_display_name
-from settings_manager import SettingsManager
+from gui.settings_manager import SettingsManager
+
+
+class CameraScanWorker(QThread):
+    completed = Signal(list, str)
+
+    def __init__(self, max_scan_cameras, action, parent=None):
+        super().__init__(parent)
+        self.max_scan_cameras = int(max_scan_cameras)
+        self.action = action
+
+    def run(self):
+        connected = scan_camera_ids(
+            self.max_scan_cameras,
+            should_stop=self.isInterruptionRequested,
+        )
+        self.completed.emit(connected, self.action)
 
 
 class DashboardPage(QWidget):
@@ -42,6 +59,9 @@ class DashboardPage(QWidget):
         self.selected_mode = "single"  # "single" or "all"
         self.selected_camera_id = 0
         self.selected_camera_ids = []
+        self.available_camera_ids = []
+        self._scan_worker = None
+        self._pending_scan_action = None
 
         self.current_frame = None
         self.latest_frames = {}
@@ -130,18 +150,57 @@ class DashboardPage(QWidget):
         self.stop_btn.clicked.connect(self.stop_camera)
         self.camera_option_btn.clicked.connect(self.select_camera_option)
         self.snapshot_btn.clicked.connect(self.take_snapshot)
+        self.reload_model_btn.clicked.connect(self.reload_model)
         self.motion_analytics_checkbox.toggled.connect(self.motion_analytics_toggled.emit)
 
-    def _scan_connected_cameras(self):
-        connected = []
-        for idx in range(self.MAX_SCAN_CAMERAS):
-            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
-            if cap.isOpened():
-                ok, _ = cap.read()
-                if ok:
-                    connected.append(idx)
-            cap.release()
-        return connected
+    def _request_camera_scan(self, action):
+        if self._scan_worker is not None and self._scan_worker.isRunning():
+            self._pending_scan_action = action
+            return
+
+        self._scan_worker = CameraScanWorker(self.MAX_SCAN_CAMERAS, action, self)
+        self._scan_worker.completed.connect(self._handle_camera_scan_completed)
+        self._scan_worker.start()
+
+    def _handle_camera_scan_completed(self, connected, action):
+        worker = self._scan_worker
+        self.available_camera_ids = connected
+        self._scan_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+        if connected:
+            if self.selected_camera_id not in connected:
+                self.selected_camera_id = connected[0]
+            if self.selected_mode == "all":
+                self.selected_camera_ids = connected[:]
+            else:
+                self.selected_camera_ids = [self.selected_camera_id]
+        else:
+            self.selected_camera_ids = [] if self.selected_mode == "all" else [self.selected_camera_id]
+
+        self._update_camera_button_label()
+
+        if action == "select":
+            self._show_camera_option_dialog(connected)
+        elif action == "start":
+            self._start_camera_with_connected(connected)
+
+        pending = self._pending_scan_action
+        self._pending_scan_action = None
+        if pending:
+            self._request_camera_scan(pending)
+
+    def _cleanup_scan_worker(self):
+        worker = self._scan_worker
+        self._scan_worker = None
+        self._pending_scan_action = None
+        if worker is None:
+            return
+        if worker.isRunning():
+            worker.requestInterruption()
+            worker.wait(10000)
+        worker.deleteLater()
 
     def _settings_camera_name(self, camera_id):
         data = self.settings.load()
@@ -151,14 +210,11 @@ class DashboardPage(QWidget):
         return f"Camera {camera_id}"
 
     def _set_default_selection(self):
-        connected = self._scan_connected_cameras()
-        if connected:
-            self.selected_camera_id = connected[0]
-            self.selected_camera_ids = connected[:]
-        else:
-            self.selected_camera_id = 0
-            self.selected_camera_ids = [0]
+        configured_camera = int(self.settings.load().get("camera_index", 0))
+        self.selected_camera_id = configured_camera
+        self.selected_camera_ids = [configured_camera]
         self._update_camera_button_label()
+        self._request_camera_scan("default")
 
     def _update_camera_button_label(self):
         if self.selected_mode == "all":
@@ -167,7 +223,9 @@ class DashboardPage(QWidget):
             self.camera_option_btn.setText(f"Camera: {self.selected_camera_id}")
 
     def select_camera_option(self):
-        connected = self._scan_connected_cameras()
+        self._request_camera_scan("select")
+
+    def _show_camera_option_dialog(self, connected):
         if not connected:
             QMessageBox.warning(self, "No Camera", "No connected camera detected.")
             return
@@ -258,10 +316,13 @@ class DashboardPage(QWidget):
 
     def start_camera(self):
         self.stop_camera()
+        self.start_btn.setEnabled(False)
+        self._request_camera_scan("start")
 
-        connected = self._scan_connected_cameras()
+    def _start_camera_with_connected(self, connected):
         if not connected:
             QMessageBox.warning(self, "No Camera", "No connected camera detected.")
+            self.start_btn.setEnabled(True)
             return
 
         if self.selected_mode == "all":
@@ -277,15 +338,20 @@ class DashboardPage(QWidget):
             process_every = self.SINGLE_PROCESS_EVERY
             self.view_stack.setCurrentWidget(self.camera_frame)
 
-        for cam_id in target_ids:
-            worker = CameraWorker(
-                camera_id=cam_id,
-                camera_name=self._settings_camera_name(cam_id),
-                process_every_n_frames=process_every,
-            )
-            worker.frame_ready.connect(partial(self.update_ui, cam_id))
-            worker.start()
-            self.workers[cam_id] = worker
+        try:
+            for cam_id in target_ids:
+                worker = CameraWorker(
+                    camera_id=cam_id,
+                    camera_name=self._settings_camera_name(cam_id),
+                    process_every_n_frames=process_every,
+                )
+                worker.frame_ready.connect(partial(self.update_ui, cam_id))
+                worker.start()
+                self.workers[cam_id] = worker
+        except Exception as exc:
+            self.stop_camera()
+            QMessageBox.warning(self, "Camera Error", str(exc))
+            return
 
         loaded_worker = next(iter(self.workers.values()), None)
         if loaded_worker is not None:
@@ -302,7 +368,22 @@ class DashboardPage(QWidget):
             count = len(os.listdir("known_faces"))
             self.known_faces_count.setText(f"Known Faces: {count}")
 
+    def reload_model(self):
+        try:
+            _, _, model_path = CameraWorker.reload_shared_model()
+        except Exception as exc:
+            QMessageBox.warning(self, "Reload Model", str(exc))
+            return
+
+        self.model_label.setText(f"Model: {get_model_display_name(model_path)}")
+
+        if self.workers:
+            self.start_camera()
+        else:
+            QMessageBox.information(self, "Reload Model", "Emotion model reloaded successfully.")
+
     def stop_camera(self):
+        self._cleanup_scan_worker()
         for worker in list(self.workers.values()):
             worker.stop()
         self.workers.clear()
@@ -410,3 +491,7 @@ class DashboardPage(QWidget):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = f"snapshots/snapshot_{timestamp}.png"
         self.current_frame.save(file_path)
+
+    def closeEvent(self, event):
+        self.stop_camera()
+        super().closeEvent(event)
