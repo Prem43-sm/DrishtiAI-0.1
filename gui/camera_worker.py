@@ -1,4 +1,6 @@
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 import cv2
@@ -47,7 +49,6 @@ class CameraWorker(QThread):
         self._last_session_check_ts = 0.0
         self._last_name = "Unknown"
         self._last_emotion = "---"
-        self._analysis_buffer = []
 
         self.memory = FaceMemory.get_instance()
         runtime_settings = self._load_runtime_settings()
@@ -56,6 +57,13 @@ class CameraWorker(QThread):
         self.emotion_frames = runtime_settings["emotion_frames"]
         self.analysis_frames = max(self.recognition_frames, self.emotion_frames)
         self._frame_interval_seconds = 1.0 / float(self.target_fps)
+        self._analysis_buffer = deque(maxlen=self.analysis_frames)
+        self._analysis_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f"camera-analysis-{camera_id}",
+        )
+        self._analysis_future = None
+        self._latest_detections = []
         self.attendance = AttendanceManager()
 
         self.today_attendance = set()
@@ -150,20 +158,6 @@ class CameraWorker(QThread):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = frame_rgb.shape
         return QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
-
-    def _capture_frames(self, cap, first_frame, num_frames):
-        yielded = 0
-
-        if first_frame is not None:
-            yielded += 1
-            yield first_frame
-
-        while self.running and yielded < num_frames:
-            ret, next_frame = cap.read()
-            if not ret:
-                break
-            yielded += 1
-            yield next_frame
 
     def _analyze_frame(self, frame, include_identity=True):
         small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
@@ -413,26 +407,6 @@ class CameraWorker(QThread):
         finalized.sort(key=lambda det: (det["box"][0], det["box"][3]))
         return finalized
 
-    def _emit_detecting_status(self, frame):
-        preview = frame.copy()
-        cv2.putText(
-            preview,
-            "Detecting...",
-            (28, max(preview.shape[0] - 24, 30)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 255),
-            2,
-        )
-        self.frame_ready.emit(
-            self._frame_to_qimage(preview),
-            "Detecting...",
-            "---",
-            0.0,
-            self.attendance.today_count(),
-            "",
-        )
-
     def recognize_face_multi_frame(
         self,
         frame_generator,
@@ -443,14 +417,14 @@ class CameraWorker(QThread):
         tracks = []
         final_frame = None
         processed_frames = 0
-        started_at = time.time()
-        status_emitted = False
         identity_limit = self._clamp_recognition_frames(
             num_frames if identity_frames is None else identity_frames
         )
         emotion_limit = self._clamp_emotion_frames(
             num_frames if emotion_frames is None else emotion_frames
         )
+        identity_start = max(1, num_frames - identity_limit + 1)
+        emotion_start = max(1, num_frames - emotion_limit + 1)
 
         for frame in frame_generator:
             if frame is None:
@@ -458,8 +432,8 @@ class CameraWorker(QThread):
 
             final_frame = frame
             processed_frames += 1
-            include_identity = processed_frames <= identity_limit
-            include_emotion = processed_frames <= emotion_limit
+            include_identity = processed_frames >= identity_start
+            include_emotion = processed_frames >= emotion_start
             detections = self._analyze_frame(frame, include_identity=include_identity)
             self._merge_detections_into_tracks(
                 tracks,
@@ -467,13 +441,6 @@ class CameraWorker(QThread):
                 collect_identity=include_identity,
                 collect_emotion=include_emotion,
             )
-
-            if (
-                not status_emitted
-                and (time.time() - started_at) >= 1.0
-            ):
-                self._emit_detecting_status(frame)
-                status_emitted = True
 
             if processed_frames >= num_frames:
                 break
@@ -483,18 +450,93 @@ class CameraWorker(QThread):
 
         return final_frame, self._finalize_multi_frame_detections(tracks), processed_frames
 
+    def _run_analysis_batch(self, batch_items):
+        batch_frames = [frame for frame, _ in batch_items]
+        if not batch_frames:
+            return {"detections": [], "analysis_ts": time.time()}
+
+        _, detections, _ = self.recognize_face_multi_frame(
+            iter(batch_frames),
+            len(batch_frames),
+            identity_frames=min(self.recognition_frames, len(batch_frames)),
+            emotion_frames=min(self.emotion_frames, len(batch_frames)),
+        )
+        return {
+            "detections": detections,
+            "analysis_ts": float(batch_items[-1][1]),
+        }
+
+    def _submit_analysis_if_ready(self):
+        if self._analysis_future is not None:
+            return
+        if len(self._analysis_buffer) < self.analysis_frames:
+            return
+
+        batch_items = list(self._analysis_buffer)
+        self._analysis_buffer.clear()
+        self._analysis_future = self._analysis_executor.submit(
+            self._run_analysis_batch,
+            batch_items,
+        )
+
+    def _collect_analysis_result(self):
+        if self._analysis_future is None or not self._analysis_future.done():
+            return ""
+
+        try:
+            result = self._analysis_future.result()
+        except Exception as exc:
+            print(f"ANALYSIS ERROR ({self.camera_name}): {exc}")
+            self._analysis_future = None
+            return ""
+
+        self._analysis_future = None
+        detections = list(result.get("detections", []))
+        analysis_ts = float(result.get("analysis_ts", time.time()))
+        self._latest_detections = detections
+
+        name, emotion, popup_msg = self._process_detections(detections, analysis_ts)
+        self._last_name = name
+        self._last_emotion = emotion
+        return popup_msg
+
     def _enforce_target_fps(self, loop_started_at):
         remaining = self._frame_interval_seconds - (time.perf_counter() - loop_started_at)
         if remaining > 0:
             time.sleep(remaining)
 
-    def _apply_detections(self, frame, detections, loop_ts):
+    def _shutdown_analysis_executor(self):
+        self._analysis_buffer.clear()
+        executor = self._analysis_executor
+        self._analysis_executor = None
+        self._analysis_future = None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    @staticmethod
+    def _draw_detections(frame, detections):
+        for det in detections:
+            top, right, bottom, left = det["box"]
+            det_name = det["name"]
+            det_emotion = det["emotion"]
+
+            cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+            cv2.putText(
+                frame,
+                f"{det_name} - {det_emotion}",
+                (left, max(top - 10, 30)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2,
+            )
+
+    def _process_detections(self, detections, loop_ts):
         popup_msg = ""
 
         if detections:
             now_sec = int(loop_ts)
             for det in detections:
-                top, right, bottom, left = det["box"]
                 det_name = det["name"]
                 det_emotion = det["emotion"]
 
@@ -519,17 +561,6 @@ class CameraWorker(QThread):
                         self.today_attendance.add(det_name)
                         popup_msg = f"{det_name} -> P{self.active_period} OK"
 
-                cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-                cv2.putText(
-                    frame,
-                    f"{det_name} - {det_emotion}",
-                    (left, max(top - 10, 30)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (0, 255, 0),
-                    2,
-                )
-
             return detections[-1]["name"], detections[-1]["emotion"], popup_msg
 
         return "Unknown", "---", popup_msg
@@ -537,6 +568,7 @@ class CameraWorker(QThread):
     def run(self):
         cap, backend_name, _ = open_camera_capture(self.camera_id)
         if cap is None:
+            self._shutdown_analysis_executor()
             return
 
         print(f"CAMERA OPENED: {self.camera_id} via {backend_name}")
@@ -549,9 +581,6 @@ class CameraWorker(QThread):
 
         while self.running:
             loop_started_at = time.perf_counter()
-            popup_msg = ""
-            name = self._last_name
-            emotion = self._last_emotion
 
             loop_ts = time.time()
             if (loop_ts - self._last_session_check_ts) >= self._session_refresh_seconds:
@@ -579,34 +608,17 @@ class CameraWorker(QThread):
                 time.sleep(0.01)
                 continue
 
+            popup_msg = self._collect_analysis_result()
             should_process = (self._frame_counter % self.process_every_n_frames) == 0
             if should_process:
-                self._analysis_buffer.append(frame.copy())
-
-                if self.analysis_frames <= 1:
-                    detections = self._analyze_frame(frame, include_identity=True)
-                    name, emotion, popup_msg = self._apply_detections(frame, detections, loop_ts)
-                    self._last_name = name
-                    self._last_emotion = emotion
-                    self._analysis_buffer.clear()
-                elif len(self._analysis_buffer) >= self.analysis_frames:
-                    batch_frames = self._analysis_buffer[:self.analysis_frames]
-                    self._analysis_buffer.clear()
-                    analyzed_frame, detections, _ = self.recognize_face_multi_frame(
-                        iter(batch_frames),
-                        len(batch_frames),
-                        identity_frames=min(self.recognition_frames, len(batch_frames)),
-                        emotion_frames=min(self.emotion_frames, len(batch_frames)),
-                    )
-                    if analyzed_frame is not None:
-                        frame = analyzed_frame
-                        name, emotion, popup_msg = self._apply_detections(frame, detections, loop_ts)
-                        self._last_name = name
-                        self._last_emotion = emotion
+                self._analysis_buffer.append((frame.copy(), loop_ts))
+            self._submit_analysis_if_ready()
 
             self._frame_counter += 1
-
+            name = self._last_name
+            emotion = self._last_emotion
             count = self.attendance.today_count()
+            self._draw_detections(frame, self._latest_detections)
 
             cv2.putText(
                 frame,
@@ -642,6 +654,7 @@ class CameraWorker(QThread):
             self._enforce_target_fps(loop_started_at)
 
         cap.release()
+        self._shutdown_analysis_executor()
 
     def stop(self):
         self.running = False
