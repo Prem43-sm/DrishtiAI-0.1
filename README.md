@@ -127,6 +127,8 @@ Important keys include:
 - `resolution`
 - `fps`
 - `process_frame`
+- `recognition_frames`
+- `emotion_frames`
 - `face_tolerance`
 - `model_path`
 - `attendance_path`
@@ -134,10 +136,11 @@ Important keys include:
 - `auto_attendance`
 - `cameras` (multi-camera config)
 
-Current defaults in this branch target higher quality capture:
+Current defaults in this branch target stable live inference:
 
-- `resolution`: `1920x1080`
-- `fps`: `60`
+- `resolution`: `640x480`
+- `fps`: `30`
+- `emotion_frames`: `10`
 
 ## How to Use (Typical Flow)
 

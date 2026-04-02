@@ -40,11 +40,27 @@ class SettingsPage(QWidget):
         self.resolution = QComboBox()
         self.resolution.addItems(["640x480", "1280x720", "1920x1080"])
 
-        self.fps = QSpinBox()
-        self.fps.setRange(1, 120)
+        self.fps = QComboBox()
+        self.fps.addItems(["25", "30", "60"])
+        self.fps.setToolTip("Caps the live camera loop. Available values: 25, 30, or 60 FPS.")
 
         self.process_frame = QSpinBox()
         self.process_frame.setRange(1, 20)
+        self.process_frame.setToolTip(
+            "Analyze one live frame group every N captured frames (higher = lighter CPU load)."
+        )
+
+        self.recognition_frames = QSpinBox()
+        self.recognition_frames.setRange(1, 50)
+        self.recognition_frames.setToolTip(
+            "Number of frames used for face recognition (higher = more accurate, slower)"
+        )
+
+        self.emotion_frames = QSpinBox()
+        self.emotion_frames.setRange(1, 50)
+        self.emotion_frames.setToolTip(
+            "Number of frames grouped for emotion voting (higher = steadier emotion, slower updates)"
+        )
 
         self.tolerance = QDoubleSpinBox()
         self.tolerance.setRange(0.1, 1.0)
@@ -78,6 +94,8 @@ class SettingsPage(QWidget):
         form.addRow("Resolution", self.resolution)
         form.addRow("FPS", self.fps)
         form.addRow("Process Frame", self.process_frame)
+        form.addRow("Recognition Frames", self.recognition_frames)
+        form.addRow("Emotion Frames", self.emotion_frames)
         form.addRow("Face Tolerance", self.tolerance)
         form.addRow(self.auto_attendance)
 
@@ -111,8 +129,16 @@ class SettingsPage(QWidget):
     def _apply_to_form(self, data):
         self.camera_index.setValue(int(data.get("camera_index", default_settings["camera_index"])))
         self.resolution.setCurrentText(data.get("resolution", default_settings["resolution"]))
-        self.fps.setValue(int(data.get("fps", default_settings["fps"])))
+        fps_value = str(data.get("fps", default_settings["fps"]))
+        fps_index = self.fps.findText(fps_value)
+        self.fps.setCurrentIndex(fps_index if fps_index >= 0 else self.fps.findText(str(default_settings["fps"])))
         self.process_frame.setValue(int(data.get("process_frame", default_settings["process_frame"])))
+        self.recognition_frames.setValue(
+            int(data.get("recognition_frames", default_settings["recognition_frames"]))
+        )
+        self.emotion_frames.setValue(
+            int(data.get("emotion_frames", default_settings["emotion_frames"]))
+        )
         self.tolerance.setValue(float(data.get("face_tolerance", default_settings["face_tolerance"])))
         self.auto_attendance.setChecked(bool(data.get("auto_attendance", default_settings["auto_attendance"])))
 
@@ -147,8 +173,10 @@ class SettingsPage(QWidget):
         data = self.manager.load()
         data["camera_index"] = self.camera_index.value()
         data["resolution"] = self.resolution.currentText()
-        data["fps"] = self.fps.value()
+        data["fps"] = int(self.fps.currentText())
         data["process_frame"] = self.process_frame.value()
+        data["recognition_frames"] = self.recognition_frames.value()
+        data["emotion_frames"] = self.emotion_frames.value()
         data["face_tolerance"] = round(self.tolerance.value(), 2)
         data["auto_attendance"] = self.auto_attendance.isChecked()
         data["model_path"] = self.model_path.text().strip()

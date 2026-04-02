@@ -325,9 +325,15 @@ class DashboardPage(QWidget):
             self.start_btn.setEnabled(True)
             return
 
+        config = self.settings.load()
+        configured_process_every = max(
+            1,
+            int(config.get("process_frame", self.SINGLE_PROCESS_EVERY)),
+        )
+
         if self.selected_mode == "all":
             target_ids = connected
-            process_every = self.ALL_PROCESS_EVERY
+            process_every = max(configured_process_every, self.ALL_PROCESS_EVERY)
             self.selected_camera_ids = connected[:]
             self._build_multi_grid(target_ids)
             self.view_stack.setCurrentWidget(self.multi_scroll)
@@ -335,7 +341,7 @@ class DashboardPage(QWidget):
             if self.selected_camera_id not in connected:
                 self.selected_camera_id = connected[0]
             target_ids = [self.selected_camera_id]
-            process_every = self.SINGLE_PROCESS_EVERY
+            process_every = configured_process_every
             self.view_stack.setCurrentWidget(self.camera_frame)
 
         try:

@@ -7,6 +7,7 @@ from gui.utils import resource_path
 
 
 SETTINGS_FILE = resource_path("settings.json")
+ALLOWED_FPS_VALUES = (25, 30, 60)
 
 
 default_settings = {
@@ -14,6 +15,8 @@ default_settings = {
     "resolution": "640x480",
     "fps": 30,
     "process_frame": 2,
+    "recognition_frames": 1,
+    "emotion_frames": 10,
     "face_tolerance": 0.5,
     "auto_attendance": True,
     "model_path": DEFAULT_MODEL_PATH,
@@ -44,6 +47,30 @@ class SettingsManager:
 
         if merged.get("theme") not in ("dark", "light"):
             merged["theme"] = default_settings["theme"]
+
+        try:
+            fps = int(merged.get("fps", default_settings["fps"]))
+        except (TypeError, ValueError):
+            fps = default_settings["fps"]
+        merged["fps"] = fps if fps in ALLOWED_FPS_VALUES else default_settings["fps"]
+
+        try:
+            process_frame = int(merged.get("process_frame", default_settings["process_frame"]))
+        except (TypeError, ValueError):
+            process_frame = default_settings["process_frame"]
+        merged["process_frame"] = max(1, min(20, process_frame))
+
+        try:
+            recognition_frames = int(merged.get("recognition_frames", 1))
+        except (TypeError, ValueError):
+            recognition_frames = default_settings["recognition_frames"]
+        merged["recognition_frames"] = max(1, min(50, recognition_frames))
+
+        try:
+            emotion_frames = int(merged.get("emotion_frames", default_settings["emotion_frames"]))
+        except (TypeError, ValueError):
+            emotion_frames = default_settings["emotion_frames"]
+        merged["emotion_frames"] = max(1, min(50, emotion_frames))
 
         return merged
 
