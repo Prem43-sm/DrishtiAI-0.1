@@ -5,6 +5,7 @@ import os
 import json
 import shutil
 import subprocess
+import sys
 import pandas as pd
 import numpy as np
 import cv2
@@ -12,6 +13,14 @@ import face_recognition
 from datetime import datetime
 from functools import partial
 
+from core.project_paths import ATTENDANCE_DIR
+from core.project_paths import KNOWN_FACES_DIR
+from core.project_paths import REPORTS_DIR
+from core.project_paths import SETTINGS_FILE
+from core.project_paths import SNAPSHOTS_DIR
+from core.project_paths import TIMETABLE_DIR
+from core.project_paths import TOOLS_DIR
+from core.project_paths import ensure_runtime_layout
 from gui.face_memory import FaceMemory
 
 
@@ -20,8 +29,9 @@ class ReportWorker(QThread):
 
     def run(self):
         try:
+            script_path = TOOLS_DIR / "monthly_report.py"
             result = subprocess.run(
-                ["python", "monthly_report.py"],
+                [sys.executable, str(script_path)],
                 capture_output=True,
                 text=True
             )
@@ -39,9 +49,10 @@ class DatabasePage(QWidget):
         super().__init__()
         self.report_worker = None
 
-        os.makedirs("known_faces", exist_ok=True)
-        os.makedirs("attendance", exist_ok=True)
-        os.makedirs("timetable", exist_ok=True)
+        ensure_runtime_layout()
+        os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
+        os.makedirs(ATTENDANCE_DIR, exist_ok=True)
+        os.makedirs(TIMETABLE_DIR, exist_ok=True)
 
         layout = QVBoxLayout(self)
 
@@ -117,7 +128,7 @@ class DatabasePage(QWidget):
         if not cls:
             return
 
-        folder = os.path.join("attendance", cls)
+        folder = os.path.join(str(ATTENDANCE_DIR), cls)
         if not os.path.exists(folder):
             self.attendance_table.setRowCount(0)
             self.attendance_table.setColumnCount(0)
@@ -220,7 +231,7 @@ class DatabasePage(QWidget):
         if hasattr(self, "class_filter"):
             self.class_filter.clear()
 
-        base = "known_faces"
+        base = str(KNOWN_FACES_DIR)
         if not os.path.exists(base):
             return
 
@@ -231,7 +242,7 @@ class DatabasePage(QWidget):
                 self.class_list.addItem(item)
                 if hasattr(self, "class_filter"):
                     self.class_filter.addItem(item)
-                tt_path = os.path.join("timetable", f"{item}.json")
+                tt_path = os.path.join(str(TIMETABLE_DIR), f"{item}.json")
                 if not os.path.exists(tt_path):
                     with open(tt_path, "w", encoding="utf-8") as f:
                         json.dump({"days": {}}, f, indent=4)
@@ -249,9 +260,9 @@ class DatabasePage(QWidget):
         if not name:
             return
 
-        os.makedirs(f"known_faces/{name}", exist_ok=True)
-        os.makedirs(f"attendance/{name}", exist_ok=True)
-        tt_path = f"timetable/{name}.json"
+        os.makedirs(os.path.join(str(KNOWN_FACES_DIR), name), exist_ok=True)
+        os.makedirs(os.path.join(str(ATTENDANCE_DIR), name), exist_ok=True)
+        tt_path = os.path.join(str(TIMETABLE_DIR), f"{name}.json")
         if not os.path.exists(tt_path):
             with open(tt_path, "w", encoding="utf-8") as f:
                 json.dump({"days": {}}, f, indent=4)
@@ -273,9 +284,9 @@ class DatabasePage(QWidget):
         if reply != QMessageBox.Yes:
             return
 
-        face_path = f"known_faces/{cls}"
-        attendance_path = f"attendance/{cls}"
-        tt_path = f"timetable/{cls}.json"
+        face_path = os.path.join(str(KNOWN_FACES_DIR), cls)
+        attendance_path = os.path.join(str(ATTENDANCE_DIR), cls)
+        tt_path = os.path.join(str(TIMETABLE_DIR), f"{cls}.json")
 
         if os.path.exists(face_path):
             shutil.rmtree(face_path, ignore_errors=True)
@@ -295,7 +306,7 @@ class DatabasePage(QWidget):
         self.current_class = item.text()
         self.student_list.clear()
 
-        path = f"known_faces/{self.current_class}"
+        path = os.path.join(str(KNOWN_FACES_DIR), self.current_class)
         if not os.path.exists(path):
             return
 
@@ -328,7 +339,7 @@ class DatabasePage(QWidget):
 
         enc = face_recognition.face_encodings(rgb, loc)[0]
 
-        np.save(f"known_faces/{self.current_class}/{name}.npy", enc)
+        np.save(os.path.join(str(KNOWN_FACES_DIR), self.current_class, f"{name}.npy"), enc)
 
         self.student_name.clear()
         self.load_students(QListWidgetItem(self.current_class))
@@ -343,7 +354,7 @@ class DatabasePage(QWidget):
         if not item:
             return
 
-        path = f"known_faces/{self.current_class}/{item.text()}.npy"
+        path = os.path.join(str(KNOWN_FACES_DIR), self.current_class, f"{item.text()}.npy")
 
         reply = QMessageBox.question(self, "Delete", "Delete student?")
         if reply == QMessageBox.Yes:
@@ -381,7 +392,7 @@ class DatabasePage(QWidget):
 
     def load_reports(self):
         self.report_list.clear()
-        folder = "reports"
+        folder = str(REPORTS_DIR)
         if os.path.exists(folder):
             for file in os.listdir(folder):
                 self.report_list.addItem(file)
@@ -389,7 +400,9 @@ class DatabasePage(QWidget):
     def view_report(self):
         item = self.report_list.currentItem()
         if item:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(f"reports/{item.text()}"))
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(os.path.join(str(REPORTS_DIR), item.text()))
+            )
 
     def delete_report(self):
         item = self.report_list.currentItem()
@@ -398,7 +411,11 @@ class DatabasePage(QWidget):
 
         reply = QMessageBox.question(self, "Delete", "Delete selected report?")
         if reply == QMessageBox.Yes:
-            os.remove(f"reports/{item.text()}")
+            target_path = os.path.join(str(REPORTS_DIR), item.text())
+            if os.path.isdir(target_path):
+                shutil.rmtree(target_path, ignore_errors=True)
+            elif os.path.exists(target_path):
+                os.remove(target_path)
             self.load_reports()
 
     # ================= SNAPSHOTS =================
@@ -420,7 +437,7 @@ class DatabasePage(QWidget):
 
     def load_snapshots(self):
 
-        folder = "snapshots"
+        folder = str(SNAPSHOTS_DIR)
         valid_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
         while self.grid.count():
@@ -545,8 +562,13 @@ class DatabasePage(QWidget):
 
         layout.addWidget(self.file_list)
 
-        for file in os.listdir():
-            if file.endswith(".json") or file.endswith(".csv"):
-                self.file_list.addItem(file)
+        file_paths = [SETTINGS_FILE]
+        if TIMETABLE_DIR.exists():
+            file_paths.extend(sorted(TIMETABLE_DIR.rglob("*.json")))
+        if ATTENDANCE_DIR.exists():
+            file_paths.extend(sorted(ATTENDANCE_DIR.rglob("*.csv")))
+
+        for file_path in file_paths:
+            self.file_list.addItem(str(file_path))
 
         return tab

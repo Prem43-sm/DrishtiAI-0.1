@@ -3,6 +3,8 @@ import os
 import face_recognition
 import numpy as np
 
+from core.project_paths import KNOWN_FACES_DIR, ensure_runtime_layout
+
 
 class FaceMemory:
     _instance = None
@@ -13,8 +15,9 @@ class FaceMemory:
             cls._instance = FaceMemory()
         return cls._instance
 
-    def __init__(self, folder="known_faces", tolerance=0.5):
-        self.folder = folder
+    def __init__(self, folder=None, tolerance=0.5):
+        ensure_runtime_layout()
+        self.folder = str(folder or KNOWN_FACES_DIR)
         self.tolerance = float(tolerance)
         self.known_encodings = []
         self.known_names = []
@@ -41,19 +44,46 @@ class FaceMemory:
 
         print(f"Faces Loaded: {len(self.known_names)}")
 
-    def get_name(self, face_encoding):
+    def _similarity_threshold(self):
+        return max(0.0, min(1.0, 1.0 - float(self.tolerance)))
+
+    def _unknown_match(self):
+        return {
+            "name": "Unknown",
+            "similarity": 0.0,
+            "confidence": 0.0,
+            "distance": None,
+            "threshold": self._similarity_threshold(),
+        }
+
+    def match_face(self, face_encoding):
         if not self.known_encodings:
-            return "Unknown"
+            return self._unknown_match()
 
         face_distances = face_recognition.face_distance(self.known_encodings, face_encoding)
         if face_distances.size == 0:
-            return "Unknown"
+            return self._unknown_match()
 
         best_match_index = int(np.argmin(face_distances))
-        if float(face_distances[best_match_index]) <= self.tolerance:
-            return self.known_names[best_match_index]
+        distance = float(face_distances[best_match_index])
+        similarity = max(0.0, 1.0 - distance)
+        threshold = self._similarity_threshold()
+        confidence_denominator = max(1e-6, 1.0 - threshold)
+        confidence = max(
+            0.0,
+            min(1.0, (similarity - threshold) / confidence_denominator),
+        )
 
-        return "Unknown"
+        return {
+            "name": self.known_names[best_match_index] if distance <= self.tolerance else "Unknown",
+            "similarity": similarity,
+            "confidence": confidence,
+            "distance": distance,
+            "threshold": threshold,
+        }
+
+    def get_name(self, face_encoding):
+        return self.match_face(face_encoding)["name"]
 
     def reload(self):
         self.load_faces()

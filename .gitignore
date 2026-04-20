@@ -14,20 +14,13 @@ face_env/
 
 # Models and large local assets
 *.h5
-face_recognition_models/
-Data/
-DataSetssss/
-Processed_Data/
-Final_Dataset/
-combined_dataset_6class_high_accuracy/
-emotion_model_pipeline/
-prepared_dataset_6class/
+models/face_recognition/
+models/emotion/legacy/
+datasets/
+archive/
 
 # Runtime/generated outputs
-attendance/
-reports/
-snapshots/
-known_faces/
+storage/
 
 # OS files
 .DS_Store

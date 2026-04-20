@@ -2,6 +2,10 @@ import json
 import os
 import shutil
 
+from core.project_paths import ATTENDANCE_DIR as ATTENDANCE_DIR_PATH
+from core.project_paths import KNOWN_FACES_DIR as CLASS_DIR_PATH
+from core.project_paths import TIMETABLE_DIR as TIMETABLE_DIR_PATH
+from core.project_paths import ensure_runtime_layout
 from PySide6.QtCore import QTime, Qt
 from PySide6.QtWidgets import (
     QWidget,
@@ -21,15 +25,16 @@ from PySide6.QtWidgets import (
 )
 
 
-TIMETABLE_DIR = "timetable"
-CLASS_DIR = "known_faces"
-ATTENDANCE_DIR = "attendance"
+TIMETABLE_DIR = str(TIMETABLE_DIR_PATH)
+CLASS_DIR = str(CLASS_DIR_PATH)
+ATTENDANCE_DIR = str(ATTENDANCE_DIR_PATH)
 
 
 class TimeTablePage(QWidget):
     def __init__(self):
         super().__init__()
 
+        ensure_runtime_layout()
         os.makedirs(TIMETABLE_DIR, exist_ok=True)
         os.makedirs(CLASS_DIR, exist_ok=True)
         os.makedirs(ATTENDANCE_DIR, exist_ok=True)

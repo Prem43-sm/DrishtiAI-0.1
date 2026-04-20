@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QPushButton, QHBoxLayout, QTableWidget, QTableWidgetItem, QComboBox
 )
 from PySide6.QtCore import QTimer
+from core.project_paths import ATTENDANCE_DIR, KNOWN_FACES_DIR, ensure_runtime_layout
 from features.tracking.live_tracker import get_all_locations, get_location
 
 
@@ -12,9 +13,9 @@ class TrackingPage(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.base_dir = Path(__file__).resolve().parents[2]
-        self.known_faces_dir = self.base_dir / "known_faces"
-        self.attendance_dir = self.base_dir / "attendance"
+        ensure_runtime_layout()
+        self.known_faces_dir = Path(KNOWN_FACES_DIR)
+        self.attendance_dir = Path(ATTENDANCE_DIR)
 
         layout = QVBoxLayout()
 

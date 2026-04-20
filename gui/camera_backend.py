@@ -1,9 +1,21 @@
+import os
+
 import cv2
 
 
-def iter_camera_backends():
+def _backend_names(for_scan=False):
+    # On Windows, DirectShow can emit noisy warnings or fail during index probing.
+    # Prefer MSMF for discovery and keep DirectShow only as a last-resort open backend.
+    if os.name == "nt":
+        if for_scan:
+            return ("CAP_MSMF", "CAP_ANY")
+        return ("CAP_MSMF", "CAP_ANY", "CAP_DSHOW")
+    return ("CAP_ANY",)
+
+
+def iter_camera_backends(for_scan=False):
     seen = set()
-    for name in ("CAP_DSHOW", "CAP_MSMF", "CAP_ANY"):
+    for name in _backend_names(for_scan=for_scan):
         backend = getattr(cv2, name, None)
         if backend is None or backend in seen:
             continue
@@ -11,9 +23,20 @@ def iter_camera_backends():
         yield name, backend
 
 
+def _create_capture(camera_id, backend_name, backend):
+    try:
+        if backend_name == "CAP_ANY":
+            return cv2.VideoCapture(camera_id)
+        return cv2.VideoCapture(camera_id, backend)
+    except Exception:
+        return None
+
+
 def probe_camera(camera_id):
-    for backend_name, backend in iter_camera_backends():
-        cap = cv2.VideoCapture(camera_id, backend)
+    for backend_name, backend in iter_camera_backends(for_scan=True):
+        cap = _create_capture(camera_id, backend_name, backend)
+        if cap is None:
+            continue
         try:
             if not cap.isOpened():
                 continue
@@ -37,8 +60,10 @@ def scan_camera_ids(max_scan_cameras, should_stop=None):
 
 
 def open_camera_capture(camera_id):
-    for backend_name, backend in iter_camera_backends():
-        cap = cv2.VideoCapture(camera_id, backend)
+    for backend_name, backend in iter_camera_backends(for_scan=False):
+        cap = _create_capture(camera_id, backend_name, backend)
+        if cap is None:
+            continue
         if not cap.isOpened():
             cap.release()
             continue

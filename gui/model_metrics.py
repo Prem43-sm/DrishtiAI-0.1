@@ -16,6 +16,9 @@ from gui.emotion_model_runtime import (
     get_dataset_split_dir,
     get_output_units,
     get_preferred_model_path,
+    infer_class_names,
+    infer_model_image_size,
+    model_uses_embedded_preprocessing,
     normalize_class_names,
 )
 
@@ -30,6 +33,8 @@ class ModelMetrics:
         self.y = None
         self.class_names = []
         self.output_units = None
+        self.image_size = (96, 96)
+        self.uses_embedded_preprocessing = False
 
         self.load_model()
         self.load_test_data()
@@ -40,6 +45,13 @@ class ModelMetrics:
         if os.path.exists(self.model_path):
             self.model = load_model(self.model_path, compile=False)
             self.output_units = get_output_units(self.model)
+            self.image_size = infer_model_image_size(
+                model=self.model,
+                model_path=self.model_path,
+            )
+            self.uses_embedded_preprocessing = model_uses_embedded_preprocessing(
+                self.model
+            )
             print("Model loaded for evaluation")
         else:
             print("Model file not found:", self.model_path)
@@ -52,10 +64,11 @@ class ModelMetrics:
             print("Test directory not found:", self.test_dir)
             return
 
-        datagen = ImageDataGenerator(rescale=1.0 / 255)
+        rescale_factor = None if model_uses_embedded_preprocessing(self.model) else (1.0 / 255.0)
+        datagen = ImageDataGenerator(rescale=rescale_factor)
         generator = datagen.flow_from_directory(
             self.test_dir,
-            target_size=(96, 96),
+            target_size=self.image_size,
             batch_size=32,
             class_mode="categorical",
             shuffle=False,
@@ -63,7 +76,15 @@ class ModelMetrics:
 
         self.X = generator
         self.y = generator.classes
-        self.class_names = normalize_class_names(generator.class_indices.keys())
+        inferred_names = infer_class_names(
+            model=self.model,
+            output_units=self.output_units,
+            model_path=self.model_path,
+        )
+        if inferred_names and len(inferred_names) == generator.num_classes:
+            self.class_names = inferred_names
+        else:
+            self.class_names = normalize_class_names(generator.class_indices.keys())
 
         print("Test dataset loaded")
 

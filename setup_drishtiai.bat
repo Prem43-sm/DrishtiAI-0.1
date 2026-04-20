@@ -83,7 +83,7 @@ if errorlevel 1 (
 )
 
 echo [6/7] Ensuring runtime folders exist...
-for %%D in (attendance reports snapshots timetable known_faces) do (
+for %%D in (storage storage\attendance storage\reports storage\snapshots storage\snapshots\noise_alerts storage\timetable storage\known_faces models models\emotion models\emotion\legacy models\face_recognition tools archive datasets) do (
     if not exist "%%D" mkdir "%%D"
 )
 

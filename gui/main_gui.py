@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         btn_emotion_analytics = QPushButton("Emotion Analytics")
         btn_attendance = QPushButton("Attendance")
         btn_database = QPushButton("Database")
-        btn_model = QPushButton("Model Performance Score")
+        btn_model = QPushButton("Model Performance")
         btn_training = QPushButton("Training")
         btn_settings = QPushButton("Settings")
         btn_about = QPushButton("About")

@@ -11,18 +11,25 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 from tensorflow.keras.models import load_model
 
+from core.project_paths import ensure_runtime_layout
 from features.engine.timetable_engine import get_current_session
 from features.tracking.live_tracker import update_location
 from gui.attendance_manager import AttendanceManager
 from gui.camera_backend import open_camera_capture
-from gui.emotion_model_runtime import get_preferred_model_path, infer_class_names
+from gui.emotion_model_runtime import (
+    get_preferred_model_path,
+    infer_class_names,
+    infer_model_image_size,
+    model_uses_embedded_preprocessing,
+    prepare_emotion_image_input,
+)
 from gui.face_memory import FaceMemory
 from gui.settings_manager import SettingsManager
 from gui.utils import resource_path
 
 # Landmark predictor fix for packaged/runtime usage.
 predictor_path = resource_path(
-    "face_recognition_models/models/shape_predictor_68_face_landmarks.dat"
+    "models/face_recognition/models/shape_predictor_68_face_landmarks.dat"
 )
 face_recognition.api.pose_predictor_model_location = predictor_path
 
@@ -31,16 +38,25 @@ class CameraWorker(QThread):
     _shared_model = None
     _shared_model_path = None
     _shared_class_names = None
+    _shared_input_size = None
+    _shared_uses_embedded_preprocessing = False
     _model_lock = Lock()
     _predict_lock = Lock()
     _session_refresh_seconds = 2.0
     _emotion_size = (96, 96)
-    _inv_255 = np.float32(1.0 / 255.0)
     _track_match_floor_px = 60.0
     _allowed_fps_values = (25, 30, 60)
+    _emotion_crop_padding = 0.18
 
-    def __init__(self, camera_id=0, camera_name="Camera", process_every_n_frames=2):
+    def __init__(
+        self,
+        camera_id=0,
+        camera_name="Camera",
+        process_every_n_frames=2,
+        display_fps_limit=None,
+    ):
         super().__init__()
+        ensure_runtime_layout()
         self.camera_id = camera_id
         self.camera_name = camera_name
         self.running = True
@@ -49,14 +65,24 @@ class CameraWorker(QThread):
         self._last_session_check_ts = 0.0
         self._last_name = "Unknown"
         self._last_emotion = "---"
+        self._last_emit_time = 0.0
 
         self.memory = FaceMemory.get_instance()
         runtime_settings = self._load_runtime_settings()
         self.target_fps = runtime_settings["fps"]
+        self.display_fps_limit = self._resolve_display_fps_limit(
+            display_fps_limit,
+            self.target_fps,
+        )
         self.recognition_frames = runtime_settings["recognition_frames"]
         self.emotion_frames = runtime_settings["emotion_frames"]
         self.analysis_frames = max(self.recognition_frames, self.emotion_frames)
         self._frame_interval_seconds = 1.0 / float(self.target_fps)
+        self._display_frame_interval_seconds = (
+            1.0 / float(self.display_fps_limit)
+            if self.display_fps_limit > 0
+            else 0.0
+        )
         self._analysis_buffer = deque(maxlen=self.analysis_frames)
         self._analysis_executor = ThreadPoolExecutor(
             max_workers=1,
@@ -72,7 +98,10 @@ class CameraWorker(QThread):
         self.active_period = None
         self.active_subject = None
 
-        self.model, self.class_names, self.model_path = self._get_shared_model_bundle()
+        self.model, self.class_names, self.model_path, self._emotion_size = self._get_shared_model_bundle()
+        self._emotion_uses_embedded_preprocessing = bool(
+            self.__class__._shared_uses_embedded_preprocessing
+        )
         print("WORKER INIT:", camera_id, camera_name)
 
     @classmethod
@@ -89,6 +118,8 @@ class CameraWorker(QThread):
             cls._shared_model = None
             cls._shared_model_path = None
             cls._shared_class_names = None
+            cls._shared_input_size = None
+            cls._shared_uses_embedded_preprocessing = False
 
     @classmethod
     def reload_shared_model(cls):
@@ -106,7 +137,19 @@ class CameraWorker(QThread):
                     model=cls._shared_model,
                     model_path=model_path,
                 )
-        return cls._shared_model, list(cls._shared_class_names or []), cls._shared_model_path
+                cls._shared_input_size = infer_model_image_size(
+                    model=cls._shared_model,
+                    model_path=model_path,
+                )
+                cls._shared_uses_embedded_preprocessing = model_uses_embedded_preprocessing(
+                    cls._shared_model
+                )
+        return (
+            cls._shared_model,
+            list(cls._shared_class_names or []),
+            cls._shared_model_path,
+            tuple(cls._shared_input_size or cls._emotion_size),
+        )
 
     @staticmethod
     def _clamp_recognition_frames(value):
@@ -144,6 +187,15 @@ class CameraWorker(QThread):
             "emotion_frames": cls._clamp_emotion_frames(settings.get("emotion_frames", 10)),
         }
 
+    @classmethod
+    def _resolve_display_fps_limit(cls, value, fallback_fps):
+        if value is None:
+            return max(1, int(fallback_fps))
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return max(1, int(fallback_fps))
+
     @staticmethod
     def _unknown_identity_match():
         return {
@@ -158,6 +210,49 @@ class CameraWorker(QThread):
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = frame_rgb.shape
         return QImage(frame_rgb.data, w, h, ch * w, QImage.Format_RGB888).copy()
+
+    @classmethod
+    def _extract_square_face_crop(cls, frame, box):
+        frame_height, frame_width = frame.shape[:2]
+        top, right, bottom, left = [int(value) for value in box]
+
+        face_width = max(1, right - left)
+        face_height = max(1, bottom - top)
+        side = int(round(max(face_width, face_height) * (1.0 + (cls._emotion_crop_padding * 2.0))))
+        side = max(1, side)
+
+        center_x = (left + right) / 2.0
+        center_y = (top + bottom) / 2.0
+        crop_left = int(round(center_x - (side / 2.0)))
+        crop_top = int(round(center_y - (side / 2.0)))
+        crop_right = crop_left + side
+        crop_bottom = crop_top + side
+
+        pad_left = max(0, -crop_left)
+        pad_top = max(0, -crop_top)
+        pad_right = max(0, crop_right - frame_width)
+        pad_bottom = max(0, crop_bottom - frame_height)
+
+        crop_left = max(0, crop_left)
+        crop_top = max(0, crop_top)
+        crop_right = min(frame_width, crop_right)
+        crop_bottom = min(frame_height, crop_bottom)
+
+        crop = frame[crop_top:crop_bottom, crop_left:crop_right]
+        if crop.size == 0:
+            return crop
+
+        if pad_left or pad_top or pad_right or pad_bottom:
+            crop = cv2.copyMakeBorder(
+                crop,
+                pad_top,
+                pad_bottom,
+                pad_left,
+                pad_right,
+                borderType=cv2.BORDER_REFLECT_101,
+            )
+
+        return crop
 
     def _analyze_frame(self, frame, include_identity=True):
         small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
@@ -196,17 +291,23 @@ class CameraWorker(QThread):
                 }
             )
 
-            face = frame[top:bottom, left:right]
+            face = self._extract_square_face_crop(frame, (top, right, bottom, left))
             if face.size == 0:
                 continue
 
             face_resized = cv2.resize(
                 face,
                 self._emotion_size,
-                interpolation=cv2.INTER_AREA,
+                interpolation=cv2.INTER_AREA if face.shape[0] >= self._emotion_size[0] else cv2.INTER_LINEAR,
             )
-            face_float = face_resized.astype(np.float32, copy=False)
-            face_float *= self._inv_255
+            # Match the training pipeline, keeping RGB ordering and the model's
+            # expected pixel range (raw 0..255 for EfficientNetV2 exports with
+            # built-in rescaling, /255.0 for legacy models without it).
+            face_rgb = cv2.cvtColor(face_resized, cv2.COLOR_BGR2RGB)
+            face_float = prepare_emotion_image_input(
+                face_rgb,
+                model=self.model,
+            )
             emotion_inputs.append(face_float)
             emotion_indices.append(idx)
 
@@ -513,6 +614,13 @@ class CameraWorker(QThread):
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
 
+    def _should_emit_preview_frame(self, emit_time):
+        if self._display_frame_interval_seconds <= 0:
+            return True
+        if self._last_emit_time <= 0:
+            return True
+        return (emit_time - self._last_emit_time) >= self._display_frame_interval_seconds
+
     @staticmethod
     def _draw_detections(frame, detections):
         for det in detections:
@@ -645,12 +753,13 @@ class CameraWorker(QThread):
                 2,
             )
 
-            img = self._frame_to_qimage(frame)
             emit_time = time.perf_counter()
-            fps = 1 / (emit_time - prev_emit_time) if emit_time > prev_emit_time else 0.0
-            prev_emit_time = emit_time
-
-            self.frame_ready.emit(img, name, emotion, fps, count, popup_msg)
+            if self._should_emit_preview_frame(emit_time):
+                img = self._frame_to_qimage(frame)
+                fps = 1 / (emit_time - prev_emit_time) if emit_time > prev_emit_time else 0.0
+                prev_emit_time = emit_time
+                self._last_emit_time = emit_time
+                self.frame_ready.emit(img, name, emotion, fps, count, popup_msg)
             self._enforce_target_fps(loop_started_at)
 
         cap.release()

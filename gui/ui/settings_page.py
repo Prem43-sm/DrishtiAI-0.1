@@ -1,5 +1,6 @@
 import os
 
+from core.project_paths import ensure_runtime_layout, resolve_app_path
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -24,6 +25,7 @@ class SettingsPage(QWidget):
     def __init__(self):
         super().__init__()
 
+        ensure_runtime_layout()
         self.manager = SettingsManager()
         self.data = self.manager.load()
 
@@ -208,8 +210,8 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Invalid Settings", message)
             return
 
-        os.makedirs(data["attendance_path"], exist_ok=True)
-        os.makedirs(data["snapshot_path"], exist_ok=True)
+        os.makedirs(resolve_app_path(data["attendance_path"]), exist_ok=True)
+        os.makedirs(resolve_app_path(data["snapshot_path"]), exist_ok=True)
 
         self.manager.save(data)
         self.data = self.manager.load()

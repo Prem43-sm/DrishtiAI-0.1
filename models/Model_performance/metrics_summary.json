@@ -1,0 +1,36 @@
+{
+  "evaluated_at": "2026-04-13T04:19:50",
+  "python_executable": "D:\\modelTrain\\face_env\\Scripts\\python.exe",
+  "model_path": "D:\\modelTrain\\TrainingRuns\\step11_high_accuracy\\epoch_models\\fine_tune_epochs28-28_model.h5",
+  "dataset_root": "D:\\modelTrain\\FinalDataset",
+  "original_image_root": "D:\\modelTrain\\MergedDataset\\dataset",
+  "class_labels": [
+    "Angry",
+    "Fear",
+    "Happy",
+    "Neutral",
+    "Sad",
+    "Surprise"
+  ],
+  "class_folders": [
+    "Angry",
+    "Fear",
+    "Happy",
+    "Neutral",
+    "Sad",
+    "Surprise"
+  ],
+  "image_size": "160x160",
+  "batch_size": 32,
+  "preprocessing": "resize_with_pad + raw_0_255",
+  "loss": 0.5252975821495056,
+  "accuracy": 0.8611010313034058,
+  "weighted_precision": 0.8630073591089428,
+  "weighted_recall": 0.8611010174418605,
+  "weighted_f1": 0.861403746990685,
+  "macro_precision": 0.8366556745583701,
+  "macro_recall": 0.8380746817145762,
+  "macro_f1": 0.8363020600046339,
+  "test_images": 11008,
+  "num_classes": 6
+}

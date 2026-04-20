@@ -2,11 +2,10 @@ import json
 import os
 from copy import deepcopy
 
+from core.project_paths import SETTINGS_FILE, ensure_runtime_layout
 from gui.emotion_model_runtime import DEFAULT_MODEL_PATH
-from gui.utils import resource_path
 
 
-SETTINGS_FILE = resource_path("settings.json")
 ALLOWED_FPS_VALUES = (25, 30, 60)
 
 
@@ -21,9 +20,9 @@ default_settings = {
     "auto_attendance": True,
     "model_path": DEFAULT_MODEL_PATH,
     "auto_load_model": True,
-    "attendance_path": "attendance",
+    "attendance_path": "storage/attendance",
     "course_name": "MSc-IT",
-    "snapshot_path": "snapshots",
+    "snapshot_path": "storage/snapshots",
     "auto_snapshot": False,
     "theme": "dark",
     "cameras": [
@@ -34,6 +33,7 @@ default_settings = {
 
 class SettingsManager:
     def __init__(self):
+        ensure_runtime_layout()
         if not os.path.exists(SETTINGS_FILE):
             self.save(default_settings)
 

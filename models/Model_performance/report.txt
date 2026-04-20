@@ -1,0 +1,93 @@
+Model Evaluation Report
+================================================================================
+Generated At: 2026-04-13T04:19:50
+Python Executable: D:\modelTrain\face_env\Scripts\python.exe
+Model Name: fine_tune_epochs28-28_model
+Model Path: D:\modelTrain\TrainingRuns\step11_high_accuracy\epoch_models\fine_tune_epochs28-28_model.h5
+Dataset Root: D:\modelTrain\FinalDataset
+Test Data Path: D:\modelTrain\FinalDataset\test
+Original Image Root: D:\modelTrain\MergedDataset\dataset
+Image Size: 160x160
+Batch Size: 32
+Preprocessing: resize_with_pad + raw_0_255
+
+Class Order
+--------------------------------------------------------------------------------
+Angry <- folder 'Angry'
+Fear <- folder 'Fear'
+Happy <- folder 'Happy'
+Neutral <- folder 'Neutral'
+Sad <- folder 'Sad'
+Surprise <- folder 'Surprise'
+
+Overall Metrics
+--------------------------------------------------------------------------------
+Loss:               0.525298
+Accuracy:           0.861101
+Weighted Precision: 0.863007
+Weighted Recall:    0.861101
+Weighted F1 Score:  0.861404
+Macro Precision:    0.836656
+Macro Recall:       0.838075
+Macro F1 Score:     0.836302
+Test Images:        11008
+Number of Classes:  6
+
+Dataset Split Totals
+--------------------------------------------------------------------------------
+Train Images: 51339
+Val Images:   11000
+Test Images:  11008
+
+Low-Support Classes (< 100 images in test split)
+--------------------------------------------------------------------------------
+None
+
+Top Misclassifications
+--------------------------------------------------------------------------------
+ 1. Fear -> Sad | count=186, error_rate=12.73%
+ 2. Angry -> Sad | count=167, error_rate=9.71%
+ 3. Sad -> Neutral | count=142, error_rate=5.74%
+ 4. Sad -> Angry | count=98, error_rate=3.96%
+ 5. Neutral -> Sad | count=96, error_rate=15.87%
+ 6. Sad -> Happy | count=92, error_rate=3.72%
+ 7. Sad -> Fear | count=89, error_rate=3.60%
+ 8. Fear -> Angry | count=72, error_rate=4.93%
+ 9. Happy -> Sad | count=66, error_rate=1.98%
+10. Angry -> Fear | count=64, error_rate=3.72%
+11. Fear -> Surprise | count=52, error_rate=3.56%
+12. Angry -> Happy | count=44, error_rate=2.56%
+13. Surprise -> Fear | count=35, error_rate=2.46%
+14. Angry -> Neutral | count=33, error_rate=1.92%
+15. Surprise -> Sad | count=32, error_rate=2.25%
+
+Classification Report
+--------------------------------------------------------------------------------
+precision    recall  f1-score   support
+
+       Angry     0.8632    0.8110    0.8363      1720
+        Fear     0.8463    0.7728    0.8079      1461
+       Happy     0.9390    0.9534    0.9462      3328
+     Neutral     0.6686    0.7669    0.7144       605
+         Sad     0.7886    0.8250    0.8064      2474
+    Surprise     0.9141    0.8993    0.9066      1420
+
+    accuracy                         0.8611     11008
+   macro avg     0.8367    0.8381    0.8363     11008
+weighted avg     0.8630    0.8611    0.8614     11008
+
+Saved Files
+--------------------------------------------------------------------------------
+class_summary.csv
+class_wise_metrics.png
+confidence_distribution.png
+confusion_matrix_counts.png
+confusion_matrix_normalized.png
+dataset_distribution.png
+metrics_overview.png
+metrics_summary.json
+prediction_distribution.png
+report.txt
+sample_predictions.png
+top_confusions.csv
+top_confusions.png

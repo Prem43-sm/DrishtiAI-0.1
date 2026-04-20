@@ -1,0 +1,76 @@
+{
+  "split_root": "D:\\modelTrain\\FinalDataset",
+  "image_root": "D:\\modelTrain\\MergedDataset\\dataset",
+  "output_dir": "D:\\modelTrain\\TrainingRuns\\step11_high_accuracy",
+  "backbone": "efficientnetv2b1",
+  "img_size": 160,
+  "batch_size": 16,
+  "warmup_epochs": 8,
+  "finetune_epochs": 28,
+  "warmup_learning_rate": 0.001,
+  "finetune_learning_rate": 0.0001,
+  "label_smoothing": 0.05,
+  "dropout": 0.4,
+  "dense_units": 320,
+  "l2": 0.0001,
+  "trainable_backbone_fraction": 0.35,
+  "sampling_exponent": 0.5,
+  "sampling_probabilities": {
+    "Angry": 0.16629810537765216,
+    "Fear": 0.15324393390971516,
+    "Happy": 0.23134588390798316,
+    "Neutral": 0.09856357943055506,
+    "Sad": 0.19945681369744006,
+    "Surprise": 0.15109168367665424
+  },
+  "steps_per_epoch": 3209,
+  "patience": 8,
+  "seed": 42,
+  "mixed_precision_policy": "mixed_float16",
+  "gpu_devices": [
+    "/physical_device:GPU:0"
+  ],
+  "train_samples": 51339,
+  "val_samples": 11000,
+  "test_samples": 11008,
+  "class_names": [
+    "Angry",
+    "Fear",
+    "Happy",
+    "Neutral",
+    "Sad",
+    "Surprise"
+  ],
+  "class_indices": {
+    "Angry": 0,
+    "Fear": 1,
+    "Happy": 2,
+    "Neutral": 3,
+    "Sad": 4,
+    "Surprise": 5
+  },
+  "train_class_counts": {
+    "Angry": 8022,
+    "Fear": 6812,
+    "Happy": 15525,
+    "Neutral": 2818,
+    "Sad": 11540,
+    "Surprise": 6622
+  },
+  "val_class_counts": {
+    "Angry": 1719,
+    "Fear": 1459,
+    "Happy": 3326,
+    "Neutral": 604,
+    "Sad": 2473,
+    "Surprise": 1419
+  },
+  "test_class_counts": {
+    "Angry": 1720,
+    "Fear": 1461,
+    "Happy": 3328,
+    "Neutral": 605,
+    "Sad": 2474,
+    "Surprise": 1420
+  }
+}

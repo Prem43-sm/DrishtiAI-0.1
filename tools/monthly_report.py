@@ -1,15 +1,22 @@
 import pandas as pd
-import os
 from datetime import datetime
+from pathlib import Path
+import sys
 
-ATTENDANCE_DIR = "attendance"
-REPORT_DIR = "reports"
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR
+if not (ROOT_DIR / "gui").exists() and (ROOT_DIR.parent / "gui").exists():
+    ROOT_DIR = ROOT_DIR.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
-os.makedirs(REPORT_DIR, exist_ok=True)
+from core.project_paths import ATTENDANCE_DIR, REPORTS_DIR, ensure_runtime_layout
+
+ensure_runtime_layout()
 
 month = input("Enter month (YYYY-MM): ")
 
-files = sorted([f for f in os.listdir(ATTENDANCE_DIR) if f.startswith(month)])
+files = sorted([f.name for f in ATTENDANCE_DIR.iterdir() if f.is_file() and f.name.startswith(month)])
 
 if not files:
     print("No data found")
@@ -18,7 +25,7 @@ if not files:
 all_data = []
 
 for file in files:
-    df = pd.read_csv(os.path.join(ATTENDANCE_DIR, file))
+    df = pd.read_csv(ATTENDANCE_DIR / file)
     df["Date"] = file.replace(".csv", "")
     all_data.append(df)
 
@@ -57,7 +64,7 @@ for date in dates:
 # SAVE EXCEL
 # -----------------------------
 
-report_file = os.path.join(REPORT_DIR, f"{month}_report.xlsx")
+report_file = REPORTS_DIR / f"{month}_report.xlsx"
 
 with pd.ExcelWriter(report_file, engine="openpyxl") as writer:
     register.to_excel(writer, sheet_name="Monthly Register", index=False)

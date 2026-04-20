@@ -4,13 +4,16 @@ from datetime import datetime
 
 import pandas as pd
 
+from core.project_paths import ATTENDANCE_DIR, ensure_runtime_layout
+
 
 class AttendanceManager:
     ATTENDANCE_COLUMNS = ["Name", "Class", "Subject", "Period", "Time", "Emotion"]
     EMOTION_COLUMNS = ["Date", "Name", "Class", "Subject", "Period", "Time", "Emotion"]
 
     def __init__(self):
-        self.base_dir = "attendance"
+        ensure_runtime_layout()
+        self.base_dir = str(ATTENDANCE_DIR)
         os.makedirs(self.base_dir, exist_ok=True)
 
         self.active_class = None

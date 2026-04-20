@@ -31,6 +31,12 @@ It provides live camera-based monitoring with attendance tracking, multi-camera 
 
 ```text
 DrishtiAI 0.1/
+├─ core/                       # Shared path/runtime helpers
+├─ models/                     # Emotion + face-recognition model assets
+├─ storage/                    # Runtime data (attendance, faces, reports, snapshots)
+├─ datasets/                   # Local training/evaluation datasets and pipeline assets
+├─ tools/                      # Utility scripts for evaluation and reports
+├─ archive/                    # Legacy models and old experiments
 ├─ gui/                        # Main GUI app and UI pages
 │  ├─ main_gui.py              # App entry point
 │  ├─ camera_backend.py        # Camera backend probing/helpers
@@ -38,11 +44,6 @@ DrishtiAI 0.1/
 │  ├─ users.json               # Login users (hashed passwords)
 │  └─ settings.json            # GUI settings (optional)
 ├─ features/                   # Tracking, timetable, and multi-camera logic
-├─ attendance/                 # Attendance outputs
-├─ reports/                    # Generated reports
-├─ snapshots/                  # Captured snapshots
-├─ known_faces/                # Face image database
-├─ timetable/                  # Timetable files/data
 ├─ requirements-runtime.txt    # Runtime dependencies
 ├─ setup_drishtiai.bat         # One-time setup script
 └─ run_drishtiai.bat           # Run script
@@ -73,11 +74,11 @@ What this script does:
 4. Upgrades `pip`, `setuptools`, `wheel`
 5. Installs locked packages from `requirements-face_env-lock.txt`
 6. Creates runtime folders if missing:
-   - `attendance`
-   - `reports`
-   - `snapshots`
-   - `timetable`
-   - `known_faces`
+   - `storage/attendance`
+   - `storage/reports`
+   - `storage/snapshots`
+   - `storage/timetable`
+   - `storage/known_faces`
 7. Saves a package snapshot to `face_env\installed-freeze.txt`
 
 Notes:
@@ -151,7 +152,8 @@ Current defaults in this branch target stable live inference:
 5. Add/manage timetable in Time-Table Editor
 6. Use Live Tracking / Multi Camera View for monitoring
 7. Review attendance and analytics pages
-8. Check generated files in `attendance/`, `reports/`, `snapshots/`
+8. Check generated files under `storage/`
+   - Examples: `storage/attendance`, `storage/reports`, `storage/snapshots`
 
 ## Emotion Model Train (Emotion_model_train)
 
@@ -168,18 +170,27 @@ How to create and use your own model for DrishtiAI:
 1. Clone/open the model training repo (`Emotion_model_train`).
 2. Prepare your emotion dataset as required by that repo.
 3. Run its training pipeline and export the trained model as `.h5`.
-4. Rename/copy your trained file to `best_emotion_model.h5` (recommended) and place it in DrishtiAI project root.
-5. Or keep your own filename and set it in DrishtiAI `settings.json`:
+4. Copy your trained model folder or model file into the project.
+5. Preferred bundled location for this project is:
+   - `models/emotion/step11_high_accuracy/best_model.h5`
+   - with sidecar metadata files like `class_names.json`, `class_indices.json`, and `training_config.json`
+6. Or keep your own filename and set it in DrishtiAI `settings.json`:
    - `model_path: "your_model_name.h5"`
-6. Start DrishtiAI again using `run_drishtiai.bat`.
+7. Start DrishtiAI again using `run_drishtiai.bat`.
 
 Required output for DrishtiAI runtime:
 
-- Emotion model file in project root (`.h5`)
-- Preferred name: `best_emotion_model.h5`
+- Emotion model file path configured in `settings.json`
+- Best compatibility comes from placing metadata next to the model file
+- Current bundled default:
+  - `models/emotion/step11_high_accuracy/best_model.h5`
+  - classes: `Angry`, `Fear`, `Happy`, `Neutral`, `Sad`, `Surprise`
+  - input size: `160x160`
+  - backbone: `EfficientNetV2B1`
+  - test accuracy from imported run: `0.8613`
 
-This code repository intentionally does not include the emotion training pipeline or image datasets.
-Keep training data and preparation artifacts outside this repo, and use the dedicated training repository for dataset prep/training work.
+Local training helpers, datasets, and archived experiments are organized under `tools/`, `datasets/`, and `archive/`.
+If you share the code, keep large local datasets and model artifacts out of version control.
 
 ## Manual Run (Optional)
 
@@ -211,7 +222,7 @@ or
   - Verify `camera_index` in `settings.json`.
 
 - Model file issues
-  - Ensure `.h5` model file exists in project root.
+  - Ensure the configured `.h5` model file exists at the path set in `settings.json`.
   - Update `model_path` in `settings.json` to correct filename.
 
 ## Notes

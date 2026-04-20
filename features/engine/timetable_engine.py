@@ -2,12 +2,15 @@ import json
 import os
 from datetime import datetime, timedelta
 
+from core.project_paths import TIMETABLE_DIR as TIMETABLE_DIR_PATH, ensure_runtime_layout
 
-TIMETABLE_DIR = "timetable"
+
+TIMETABLE_DIR = str(TIMETABLE_DIR_PATH)
 
 
 class TimeTableEngine:
     def __init__(self):
+        ensure_runtime_layout()
         os.makedirs(TIMETABLE_DIR, exist_ok=True)
         self.active_class = None
         self.active_period = None

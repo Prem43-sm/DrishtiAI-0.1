@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QFrame,
 )
 
+from core.project_paths import NOISE_ALERTS_DIR, ensure_runtime_layout
 try:
     from PySide6.QtMultimedia import QAudioFormat, QAudioSource, QMediaDevices
 except Exception:
@@ -32,6 +33,7 @@ from features.tracking.live_tracker import get_all_locations
 class BehaviorPage(QWidget):
     def __init__(self):
         super().__init__()
+        ensure_runtime_layout()
 
         self.cam_manager = MultiCameraManager()
         self.worker = None
@@ -341,7 +343,7 @@ class BehaviorPage(QWidget):
         if (now_ts - self.last_snapshot_time) < self.snapshot_cooldown_sec:
             return
 
-        folder = os.path.join("snapshots", "noise_alerts")
+        folder = str(NOISE_ALERTS_DIR)
         os.makedirs(folder, exist_ok=True)
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -354,7 +356,7 @@ class BehaviorPage(QWidget):
             self.refresh_snapshot_list()
 
     def refresh_snapshot_list(self):
-        folder = os.path.join("snapshots", "noise_alerts")
+        folder = str(NOISE_ALERTS_DIR)
         os.makedirs(folder, exist_ok=True)
 
         files = []

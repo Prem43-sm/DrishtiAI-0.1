@@ -17,14 +17,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.project_paths import ATTENDANCE_DIR, KNOWN_FACES_DIR, ensure_runtime_layout
+
 
 class EmotionAnalyticsPage(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.base_dir = Path(__file__).resolve().parents[2]
-        self.attendance_dir = self.base_dir / "attendance"
-        self.known_faces_dir = self.base_dir / "known_faces"
+        ensure_runtime_layout()
+        self.attendance_dir = Path(ATTENDANCE_DIR)
+        self.known_faces_dir = Path(KNOWN_FACES_DIR)
 
         self.raw_df = pd.DataFrame()
         self.analytics_df = pd.DataFrame()
@@ -154,7 +156,7 @@ class EmotionAnalyticsPage(QWidget):
 
         self.csv_sources = self._discover_csv_sources()
         if not self.csv_sources:
-            self._set_empty_data("No CSV files found in attendance/.")
+            self._set_empty_data("No CSV files found in storage/attendance/.")
             return
 
         frames = []

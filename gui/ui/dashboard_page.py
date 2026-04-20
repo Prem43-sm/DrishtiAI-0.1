@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.project_paths import KNOWN_FACES_DIR, SNAPSHOTS_DIR, ensure_runtime_layout
 from gui.camera_backend import scan_camera_ids
 from gui.camera_worker import CameraWorker
 from gui.emotion_model_runtime import get_model_display_name
@@ -48,10 +49,12 @@ class DashboardPage(QWidget):
 
     SINGLE_PROCESS_EVERY = 2
     ALL_PROCESS_EVERY = 10
+    ALL_DISPLAY_FPS = 8
     MAX_SCAN_CAMERAS = 12
 
     def __init__(self):
         super().__init__()
+        ensure_runtime_layout()
 
         self.settings = SettingsManager()
         self.workers = {}
@@ -70,6 +73,7 @@ class DashboardPage(QWidget):
         self._last_popup_msg = ""
         self._last_popup_ts = 0.0
         self._popup_box = None
+        self._last_multi_status_update_ts = 0.0
 
         self._build_ui()
         self._set_default_selection()
@@ -334,14 +338,18 @@ class DashboardPage(QWidget):
         if self.selected_mode == "all":
             target_ids = connected
             process_every = max(configured_process_every, self.ALL_PROCESS_EVERY)
+            display_fps_limit = self.ALL_DISPLAY_FPS
             self.selected_camera_ids = connected[:]
             self._build_multi_grid(target_ids)
             self.view_stack.setCurrentWidget(self.multi_scroll)
+            self.name_label.setText("Name: Multi-camera view")
+            self.emotion_label.setText("Emotion: Mixed")
         else:
             if self.selected_camera_id not in connected:
                 self.selected_camera_id = connected[0]
             target_ids = [self.selected_camera_id]
             process_every = configured_process_every
+            display_fps_limit = None
             self.view_stack.setCurrentWidget(self.camera_frame)
 
         try:
@@ -350,6 +358,7 @@ class DashboardPage(QWidget):
                     camera_id=cam_id,
                     camera_name=self._settings_camera_name(cam_id),
                     process_every_n_frames=process_every,
+                    display_fps_limit=display_fps_limit,
                 )
                 worker.frame_ready.connect(partial(self.update_ui, cam_id))
                 worker.start()
@@ -370,13 +379,14 @@ class DashboardPage(QWidget):
         self.stop_btn.setEnabled(True)
         self._update_camera_button_label()
 
-        if os.path.exists("known_faces"):
-            count = len(os.listdir("known_faces"))
+        known_faces_dir = str(KNOWN_FACES_DIR)
+        if os.path.exists(known_faces_dir):
+            count = len(os.listdir(known_faces_dir))
             self.known_faces_count.setText(f"Known Faces: {count}")
 
     def reload_model(self):
         try:
-            _, _, model_path = CameraWorker.reload_shared_model()
+            _, _, model_path, _ = CameraWorker.reload_shared_model()
         except Exception as exc:
             QMessageBox.warning(self, "Reload Model", str(exc))
             return
@@ -414,13 +424,17 @@ class DashboardPage(QWidget):
 
         if self.selected_mode == "all":
             self._render_camera_tile(camera_id)
+            now_ts = datetime.now().timestamp()
+            if (now_ts - self._last_multi_status_update_ts) >= 0.25:
+                self.fps_label.setText(f"FPS: {fps:.2f}")
+                self.attendance_count.setText(f"Today Attendance: {count}")
+                self._last_multi_status_update_ts = now_ts
         else:
             self._render_current_frame()
-
-        self.name_label.setText(f"Name: {name}")
-        self.emotion_label.setText(f"Emotion: {emotion}")
-        self.fps_label.setText(f"FPS: {fps:.2f}")
-        self.attendance_count.setText(f"Today Attendance: {count}")
+            self.name_label.setText(f"Name: {name}")
+            self.emotion_label.setText(f"Emotion: {emotion}")
+            self.fps_label.setText(f"FPS: {fps:.2f}")
+            self.attendance_count.setText(f"Today Attendance: {count}")
 
         if popup_msg and self.selected_mode != "all":
             self.show_attendance_popup(popup_msg)
@@ -452,7 +466,7 @@ class DashboardPage(QWidget):
             QPixmap.fromImage(frame).scaled(
                 tile.size(),
                 Qt.KeepAspectRatioByExpanding,
-                Qt.SmoothTransformation,
+                Qt.FastTransformation,
             )
         )
 
@@ -493,9 +507,10 @@ class DashboardPage(QWidget):
         if self.current_frame is None:
             return
 
-        os.makedirs("snapshots", exist_ok=True)
+        snapshot_dir = str(SNAPSHOTS_DIR)
+        os.makedirs(snapshot_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_path = f"snapshots/snapshot_{timestamp}.png"
+        file_path = os.path.join(snapshot_dir, f"snapshot_{timestamp}.png")
         self.current_frame.save(file_path)
 
     def closeEvent(self, event):

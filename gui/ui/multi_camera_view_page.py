@@ -105,9 +105,9 @@ class MultiCameraViewPage(QWidget):
 
         self.fullscreen_window = None
         self.fullscreen_camera_id = None
+        self._scanned_once = False
 
         self._build_ui()
-        self.refresh_cameras()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -178,6 +178,7 @@ class MultiCameraViewPage(QWidget):
         self.camera_ids = self._scan_connected_cameras()
         self.camera_names = {cid: f"cam-{i+1:02d}" for i, cid in enumerate(self.camera_ids)}
         self._build_camera_grid()
+        self._scanned_once = True
         if self.camera_ids:
             self.status_label.setText(f"Status: Found {len(self.camera_ids)} camera(s)")
         else:
@@ -323,3 +324,8 @@ class MultiCameraViewPage(QWidget):
             self.fullscreen_window.close()
             self.fullscreen_window = None
         super().closeEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._scanned_once:
+            self.refresh_cameras()

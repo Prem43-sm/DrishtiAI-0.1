@@ -21,13 +21,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.project_paths import ATTENDANCE_DIR, KNOWN_FACES_DIR, TIMETABLE_DIR, ensure_runtime_layout
+
 
 class AttendancePage(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.base_dir = "attendance"
-        self.face_dir = "known_faces"
+        ensure_runtime_layout()
+        self.base_dir = str(ATTENDANCE_DIR)
+        self.face_dir = str(KNOWN_FACES_DIR)
 
         os.makedirs(self.base_dir, exist_ok=True)
         os.makedirs(self.face_dir, exist_ok=True)
@@ -139,7 +142,7 @@ class AttendancePage(QWidget):
         periods = set()
 
         # 1) Prefer timetable day periods
-        timetable_file = os.path.join("timetable", f"{cls}.json")
+        timetable_file = os.path.join(str(TIMETABLE_DIR), f"{cls}.json")
         try:
             d = datetime.strptime(date_str, "%Y-%m-%d")
             day_name = d.strftime("%A")
@@ -388,7 +391,7 @@ class AttendancePage(QWidget):
         )
 
     def _get_timetable_periods(self, class_name):
-        timetable_file = os.path.join("timetable", f"{class_name}.json")
+        timetable_file = os.path.join(str(TIMETABLE_DIR), f"{class_name}.json")
         periods = set()
 
         if os.path.exists(timetable_file):
