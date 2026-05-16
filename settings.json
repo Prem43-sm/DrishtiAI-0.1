@@ -14,6 +14,11 @@
     "snapshot_path": "storage/snapshots",
     "auto_snapshot": false,
     "theme": "dark",
+    "sidebar_auto_hide": false,
+    "sidebar_hover_expand": true,
+    "sidebar_overlay_navigation": true,
+    "sidebar_compact_icons": false,
+    "sidebar_fullscreen_workspace": false,
     "cameras": [
         {
             "id": 0,

@@ -35,11 +35,11 @@ class AboutPage(QWidget):
 
         logo.setAlignment(Qt.AlignCenter)
 
-        title = QLabel("DrishtiAI 0.1\nIntelligent Attendance & Surveillance System")
+        title = QLabel("DrishtiAI \nDeep Learning-Based Facial Emotion Recognition System \nUsing EfficientNetV2 with Advanced Evaluation and Confidence Analysis")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-size:16px; font-weight:bold;")
 
-        dev = QLabel("Developed by:\nPremnarayan Chandra\nMSc IT - 4th Semester")
+        dev = QLabel("Developed by:\nPremnarayan Chandra\nMSc IT - 4th Semester\nRoll No: 240804")
         dev.setAlignment(Qt.AlignCenter)
         dev.setStyleSheet("font-size:13px;")
 

@@ -12,8 +12,11 @@ import cv2
 import face_recognition
 from datetime import datetime
 from functools import partial
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 from core.project_paths import ATTENDANCE_DIR
+from core.project_paths import ANALYTICS_REPORTS_DIR
 from core.project_paths import KNOWN_FACES_DIR
 from core.project_paths import REPORTS_DIR
 from core.project_paths import SETTINGS_FILE
@@ -21,6 +24,12 @@ from core.project_paths import SNAPSHOTS_DIR
 from core.project_paths import TIMETABLE_DIR
 from core.project_paths import TOOLS_DIR
 from core.project_paths import ensure_runtime_layout
+from features.analytics.ai_insight_engine import emotion_insights, focus_insights
+from features.analytics.analytics_database import (
+    analytics_database_path,
+    fetch_reports,
+    initialize_analytics_database,
+)
 from gui.face_memory import FaceMemory
 
 
@@ -65,6 +74,7 @@ class DatabasePage(QWidget):
         self.tabs.addTab(self.attendance_tab(), "Attendance")
         self.tabs.addTab(self.face_db_tab(), "Face Database")
         self.tabs.addTab(self.reports_tab(), "Reports")
+        self.tabs.addTab(self.analytics_toolbox_tab(), "AI Analytics Toolbox")
         self.tabs.addTab(self.snapshots_tab(), "Snapshots")
         self.tabs.addTab(self.system_files_tab(), "System Files")
 
@@ -396,6 +406,164 @@ class DatabasePage(QWidget):
         if os.path.exists(folder):
             for file in os.listdir(folder):
                 self.report_list.addItem(file)
+
+    # ================= AI ANALYTICS TOOLBOX =================
+    def analytics_toolbox_tab(self):
+        initialize_analytics_database()
+        tab = QWidget()
+        main = QHBoxLayout(tab)
+
+        toolbox = QVBoxLayout()
+        toolbox.addWidget(QLabel("AI Analytics Toolbox"))
+
+        buttons = [
+            ("Emotion Reports", lambda: self.load_analytics_panel("emotion_reports")),
+            ("Focus Reports", lambda: self.load_analytics_panel("focus_reports")),
+            ("Monthly Analytics", lambda: self.load_analytics_panel("monthly_analytics")),
+            ("Export Reports", self.open_analytics_reports_folder),
+            ("Student Comparison", lambda: self.load_analytics_panel("student_comparison")),
+            ("AI Insights Dashboard", lambda: self.load_analytics_panel("ai_insights")),
+        ]
+        for label, handler in buttons:
+            btn = QPushButton(label)
+            btn.setMinimumHeight(38)
+            btn.clicked.connect(handler)
+            toolbox.addWidget(btn)
+        toolbox.addStretch()
+
+        content = QVBoxLayout()
+        self.analytics_title = QLabel("Select a toolbox item")
+        self.analytics_title.setStyleSheet("font-size:16px; font-weight:bold;")
+        content.addWidget(self.analytics_title)
+
+        self.analytics_chart_fig = Figure(figsize=(5, 2.8), tight_layout=True)
+        self.analytics_chart_fig.patch.set_facecolor("#0b0f14")
+        self.analytics_chart = FigureCanvas(self.analytics_chart_fig)
+        content.addWidget(self.analytics_chart)
+
+        self.analytics_insights = QLabel("Database: " + str(analytics_database_path()))
+        self.analytics_insights.setWordWrap(True)
+        self.analytics_insights.setStyleSheet("background:#101419; border:1px solid #28313d; padding:8px;")
+        content.addWidget(self.analytics_insights)
+
+        self.analytics_table = QTableWidget()
+        content.addWidget(self.analytics_table, 1)
+
+        main.addLayout(toolbox, 1)
+        main.addLayout(content, 4)
+        self.load_analytics_panel("emotion_reports")
+        return tab
+
+    def load_analytics_panel(self, panel_name):
+        if panel_name in ("emotion_reports", "monthly_analytics"):
+            rows = fetch_reports("emotion_reports", limit=250)
+            self.analytics_title.setText("Emotion Reports" if panel_name == "emotion_reports" else "Monthly Analytics")
+            self.populate_analytics_table(rows)
+            self.draw_emotion_report_chart(rows)
+            self.analytics_insights.setText(self.build_emotion_insight_text(rows))
+        elif panel_name in ("focus_reports", "student_comparison"):
+            rows = fetch_reports("focus_reports", limit=250)
+            self.analytics_title.setText("Focus Reports" if panel_name == "focus_reports" else "Student Comparison")
+            self.populate_analytics_table(rows)
+            self.draw_focus_report_chart(rows, comparison=(panel_name == "student_comparison"))
+            self.analytics_insights.setText(self.build_focus_insight_text(rows))
+        elif panel_name == "ai_insights":
+            emotion_rows = fetch_reports("emotion_reports", limit=50)
+            focus_rows = fetch_reports("focus_reports", limit=50)
+            rows = emotion_rows + focus_rows
+            self.analytics_title.setText("AI Insights Dashboard")
+            self.populate_analytics_table(rows)
+            self.draw_insights_chart(emotion_rows, focus_rows)
+            combined = [self.build_emotion_insight_text(emotion_rows), self.build_focus_insight_text(focus_rows)]
+            self.analytics_insights.setText("\n".join(text for text in combined if text.strip()))
+
+    def populate_analytics_table(self, rows):
+        if not rows:
+            self.analytics_table.setRowCount(0)
+            self.analytics_table.setColumnCount(0)
+            return
+        columns = list(rows[0].keys())
+        self.analytics_table.setColumnCount(len(columns))
+        self.analytics_table.setHorizontalHeaderLabels(columns)
+        self.analytics_table.setRowCount(len(rows))
+        self.analytics_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        for r, row in enumerate(rows):
+            for c, column in enumerate(columns):
+                self.analytics_table.setItem(r, c, QTableWidgetItem(str(row.get(column, ""))))
+
+    def draw_emotion_report_chart(self, rows):
+        self.analytics_chart_fig.clear()
+        ax = self.analytics_chart_fig.add_subplot(111)
+        self._style_analytics_axis(ax)
+        if not rows:
+            ax.text(0.5, 0.5, "No emotion reports saved", ha="center", va="center", color="#cbd5e1")
+            ax.set_axis_off()
+        else:
+            latest = list(reversed(rows[:12]))
+            labels = [str(row.get("student_id", ""))[:10] for row in latest]
+            values = [float(row.get("performance_score", 0)) for row in latest]
+            ax.bar(labels, values, color="#38bdf8")
+            ax.set_ylim(0, 100)
+            ax.set_ylabel("Performance")
+            ax.tick_params(axis="x", rotation=25)
+        self.analytics_chart.draw_idle()
+
+    def draw_focus_report_chart(self, rows, comparison=False):
+        self.analytics_chart_fig.clear()
+        ax = self.analytics_chart_fig.add_subplot(111)
+        self._style_analytics_axis(ax)
+        if not rows:
+            ax.text(0.5, 0.5, "No focus reports saved", ha="center", va="center", color="#cbd5e1")
+            ax.set_axis_off()
+        else:
+            df = pd.DataFrame(rows)
+            if comparison:
+                summary = df.groupby("student_id")["focus_score"].mean().sort_values(ascending=False).head(12)
+                ax.bar(summary.index.astype(str), summary.values, color="#22c55e")
+                ax.set_ylabel("Average Focus")
+            else:
+                latest = list(reversed(rows[:12]))
+                ax.plot([str(r.get("student_id", ""))[:10] for r in latest], [float(r.get("focus_score", 0)) for r in latest], marker="o", color="#22c55e")
+                ax.set_ylabel("Focus")
+            ax.set_ylim(0, 100)
+            ax.tick_params(axis="x", rotation=25)
+        self.analytics_chart.draw_idle()
+
+    def draw_insights_chart(self, emotion_rows, focus_rows):
+        self.analytics_chart_fig.clear()
+        ax = self.analytics_chart_fig.add_subplot(111)
+        self._style_analytics_axis(ax)
+        emotion_avg = np.mean([float(r.get("performance_score", 0)) for r in emotion_rows]) if emotion_rows else 0
+        focus_avg = np.mean([float(r.get("focus_score", 0)) for r in focus_rows]) if focus_rows else 0
+        ax.bar(["Performance", "Focus"], [emotion_avg, focus_avg], color=["#38bdf8", "#22c55e"])
+        ax.set_ylim(0, 100)
+        self.analytics_chart.draw_idle()
+
+    def build_emotion_insight_text(self, rows):
+        if not rows:
+            return "Emotion insights: No saved emotion reports yet."
+        latest = rows[0]
+        insights = emotion_insights(latest)
+        return "Emotion insights: " + " ".join(insights)
+
+    def build_focus_insight_text(self, rows):
+        if not rows:
+            return "Focus insights: No saved focus reports yet."
+        latest = rows[0]
+        insights = focus_insights(latest)
+        return "Focus insights: " + " ".join(insights)
+
+    def open_analytics_reports_folder(self):
+        os.makedirs(str(ANALYTICS_REPORTS_DIR), exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(ANALYTICS_REPORTS_DIR)))
+
+    def _style_analytics_axis(self, ax):
+        ax.set_facecolor("#0f141b")
+        for spine in ax.spines.values():
+            spine.set_color("#425167")
+        ax.tick_params(colors="#d7dde8")
+        ax.xaxis.label.set_color("#e6ecf5")
+        ax.yaxis.label.set_color("#e6ecf5")
 
     def view_report(self):
         item = self.report_list.currentItem()

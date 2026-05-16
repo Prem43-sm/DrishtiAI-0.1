@@ -25,6 +25,11 @@ default_settings = {
     "snapshot_path": "storage/snapshots",
     "auto_snapshot": False,
     "theme": "dark",
+    "sidebar_auto_hide": False,
+    "sidebar_hover_expand": True,
+    "sidebar_overlay_navigation": True,
+    "sidebar_compact_icons": False,
+    "sidebar_fullscreen_workspace": False,
     "cameras": [
         {"id": 0, "name": "Main Camera", "class": "MSc-IT"}
     ],

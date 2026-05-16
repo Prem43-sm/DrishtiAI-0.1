@@ -41,9 +41,11 @@ DrishtiAI 0.1/
 │  ├─ main_gui.py              # App entry point
 │  ├─ camera_backend.py        # Camera backend probing/helpers
 │  ├─ ui/                      # Dashboard, tracking, attendance, etc.
-│  ├─ users.json               # Login users (hashed passwords)
-│  └─ settings.json            # GUI settings (optional)
+│  ├─ assets/branding/         # App logos/icons
+│  └─ users.json               # Login users (hashed passwords)
 ├─ features/                   # Tracking, timetable, and multi-camera logic
+├─ settings.json               # Main runtime config used by the app
+├─ requirements-face_env-lock.txt # Locked setup dependencies
 ├─ requirements-runtime.txt    # Runtime dependencies
 ├─ setup_drishtiai.bat         # One-time setup script
 └─ run_drishtiai.bat           # Run script
@@ -52,11 +54,16 @@ DrishtiAI 0.1/
 ## Prerequisites
 
 1. Windows 10 or 11
-2. Python `3.11` (recommended) or `3.10`
+2. Python `3.10` for `setup_drishtiai.bat`
 3. Python Launcher (`py`) available in terminal
 4. Webcam/camera access enabled
 5. Internet connection for first dependency install
 6. (If needed) Microsoft C++ Build Tools for packages like `dlib` / `face-recognition`
+
+Notes:
+
+- `run_drishtiai.bat` can still start the app from an existing `.venv311`, `.venv310`, or `.venv` environment.
+- For the bundled setup flow, the project expects Python `3.10.x`.
 
 ## Setup (First Time)
 
@@ -73,12 +80,17 @@ What this script does:
 3. Creates virtual env `face_env`
 4. Upgrades `pip`, `setuptools`, `wheel`
 5. Installs locked packages from `requirements-face_env-lock.txt`
-6. Creates runtime folders if missing:
+6. Creates required project folders if missing:
    - `storage/attendance`
    - `storage/reports`
    - `storage/snapshots`
+   - `storage/snapshots/noise_alerts`
    - `storage/timetable`
    - `storage/known_faces`
+   - `models/emotion`
+   - `models/emotion/legacy`
+   - `models/face_recognition`
+   - `tools`, `archive`, `datasets`
 7. Saves a package snapshot to `face_env\installed-freeze.txt`
 
 Notes:
@@ -137,7 +149,16 @@ Important keys include:
 - `auto_attendance`
 - `cameras` (multi-camera config)
 
-Current defaults in this branch target stable live inference:
+Committed `settings.json` currently includes:
+
+- `resolution`: `1920x1080`
+- `fps`: `30`
+- `process_frame`: `2`
+- `recognition_frames`: `1`
+- `emotion_frames`: `1`
+- `model_path`: `models/emotion/step11_high_accuracy/final_model.h5`
+
+If `settings.json` is deleted or reset, `gui/settings_manager.py` recreates factory defaults with:
 
 - `resolution`: `640x480`
 - `fps`: `30`
@@ -171,23 +192,24 @@ How to create and use your own model for DrishtiAI:
 2. Prepare your emotion dataset as required by that repo.
 3. Run its training pipeline and export the trained model as `.h5`.
 4. Copy your trained model folder or model file into the project.
-5. Preferred bundled location for this project is:
-   - `models/emotion/step11_high_accuracy/best_model.h5`
+5. Preferred project location for this app is:
+   - `models/emotion/step11_high_accuracy/final_model.h5`
    - with sidecar metadata files like `class_names.json`, `class_indices.json`, and `training_config.json`
 6. Or keep your own filename and set it in DrishtiAI `settings.json`:
-   - `model_path: "your_model_name.h5"`
+   - `model_path: "models/emotion/your_model/final_model.h5"`
 7. Start DrishtiAI again using `run_drishtiai.bat`.
 
 Required output for DrishtiAI runtime:
 
 - Emotion model file path configured in `settings.json`
 - Best compatibility comes from placing metadata next to the model file
-- Current bundled default:
-  - `models/emotion/step11_high_accuracy/best_model.h5`
-  - classes: `Angry`, `Fear`, `Happy`, `Neutral`, `Sad`, `Surprise`
+- Current default runtime path:
+  - `models/emotion/step11_high_accuracy/final_model.h5`
+  - metadata in the same folder describes classes: `Angry`, `Fear`, `Happy`, `Neutral`, `Sad`, `Surprise`
   - input size: `160x160`
   - backbone: `EfficientNetV2B1`
-  - test accuracy from imported run: `0.8613`
+  - reported test accuracy from imported metrics: `0.8613`
+- The `.h5` model file itself is expected locally and is ignored by Git by default.
 
 Local training helpers, datasets, and archived experiments are organized under `tools/`, `datasets/`, and `archive/`.
 If you share the code, keep large local datasets and model artifacts out of version control.
@@ -229,3 +251,41 @@ or
 
 - This project is currently Windows-focused because setup/run are provided as `.bat` scripts.
 - Keep virtual environments, large model files, image datasets, and local training/pipeline folders out of version control when sharing code.
+
+## AI Analytics Additions
+
+New integrated pages:
+
+- `Emotion Performance Analytics`: monthly student emotion percentages, emotion score, engagement score, stability score, final performance score, charts, AI recommendations, and PDF/CSV/Excel exports.
+- `Focus Mode Monitoring`: live webcam focus tracking with MediaPipe Face Mesh when installed, focus scoring, movement/sleeping/looking-away counters, database saving, and PDF/CSV/Excel exports.
+- `Database -> AI Analytics Toolbox`: report tables, charts, monthly analytics, student comparison, export-folder access, and AI insights.
+
+Analytics data is stored in:
+
+- `storage/drishtiai_analytics.db`
+- `emotion_reports`
+- `focus_reports`
+
+Generated analytics exports are saved under:
+
+- `storage/reports/analytics`
+
+Additional package notes:
+
+- `mediapipe` enables landmark-based focus tracking.
+- `openpyxl` is required for Excel exports.
+- PDF export uses the existing Matplotlib stack.
+
+## Smart Sidebar Workspace
+
+The main window now includes a responsive smart sidebar system:
+
+- Expanded, collapsed, hidden, overlay, and hover-expand navigation modes.
+- A left menu rail appears when the sidebar is hidden so page titles and content do not overlap the menu button.
+- `Focus Workspace` mode is available on Live Tracking, Emotion Analytics, and Focus Mode Monitoring pages.
+- Sidebar preferences are saved locally in `settings.json` and can be changed from Settings:
+  - Auto Hide Sidebar
+  - Hover Expand
+  - Overlay Navigation
+  - Compact Icons
+  - Fullscreen Workspace

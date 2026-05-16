@@ -52,6 +52,8 @@ STORAGE_DIR = app_path("storage")
 ATTENDANCE_DIR = STORAGE_DIR / "attendance"
 KNOWN_FACES_DIR = STORAGE_DIR / "known_faces"
 REPORTS_DIR = STORAGE_DIR / "reports"
+ANALYTICS_DB_FILE = STORAGE_DIR / "drishtiai_analytics.db"
+ANALYTICS_REPORTS_DIR = REPORTS_DIR / "analytics"
 SNAPSHOTS_DIR = STORAGE_DIR / "snapshots"
 NOISE_ALERTS_DIR = SNAPSHOTS_DIR / "noise_alerts"
 TIMETABLE_DIR = STORAGE_DIR / "timetable"
@@ -79,6 +81,7 @@ def ensure_runtime_layout() -> None:
         ATTENDANCE_DIR,
         KNOWN_FACES_DIR,
         REPORTS_DIR,
+        ANALYTICS_REPORTS_DIR,
         SNAPSHOTS_DIR,
         NOISE_ALERTS_DIR,
         TIMETABLE_DIR,

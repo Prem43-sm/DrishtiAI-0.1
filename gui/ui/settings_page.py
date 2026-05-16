@@ -16,12 +16,15 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QHBoxLayout,
 )
+from PySide6.QtCore import Signal
 
 from gui.emotion_model_runtime import resolve_project_path
 from gui.settings_manager import SettingsManager, default_settings
 
 
 class SettingsPage(QWidget):
+    settings_saved = Signal(dict)
+
     def __init__(self):
         super().__init__()
 
@@ -92,6 +95,12 @@ class SettingsPage(QWidget):
         self.theme = QComboBox()
         self.theme.addItems(["dark", "light"])
 
+        self.sidebar_auto_hide = QCheckBox("Auto Hide Sidebar")
+        self.sidebar_hover_expand = QCheckBox("Hover Expand")
+        self.sidebar_overlay_navigation = QCheckBox("Overlay Navigation")
+        self.sidebar_compact_icons = QCheckBox("Compact Icons")
+        self.sidebar_fullscreen_workspace = QCheckBox("Fullscreen Workspace")
+
         form.addRow("Camera Index", self.camera_index)
         form.addRow("Resolution", self.resolution)
         form.addRow("FPS", self.fps)
@@ -114,6 +123,11 @@ class SettingsPage(QWidget):
         form.addRow(self.auto_snapshot)
 
         form.addRow("Theme", self.theme)
+        form.addRow(self.sidebar_auto_hide)
+        form.addRow(self.sidebar_hover_expand)
+        form.addRow(self.sidebar_overlay_navigation)
+        form.addRow(self.sidebar_compact_icons)
+        form.addRow(self.sidebar_fullscreen_workspace)
         layout.addLayout(form)
 
         btn_row = QHBoxLayout()
@@ -155,6 +169,11 @@ class SettingsPage(QWidget):
 
         theme = str(data.get("theme", default_settings["theme"]))
         self.theme.setCurrentText(theme if theme in ("dark", "light") else "dark")
+        self.sidebar_auto_hide.setChecked(bool(data.get("sidebar_auto_hide", default_settings["sidebar_auto_hide"])))
+        self.sidebar_hover_expand.setChecked(bool(data.get("sidebar_hover_expand", default_settings["sidebar_hover_expand"])))
+        self.sidebar_overlay_navigation.setChecked(bool(data.get("sidebar_overlay_navigation", default_settings["sidebar_overlay_navigation"])))
+        self.sidebar_compact_icons.setChecked(bool(data.get("sidebar_compact_icons", default_settings["sidebar_compact_icons"])))
+        self.sidebar_fullscreen_workspace.setChecked(bool(data.get("sidebar_fullscreen_workspace", default_settings["sidebar_fullscreen_workspace"])))
 
     def select_model(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Model", "", "Model File (*.h5)")
@@ -188,6 +207,11 @@ class SettingsPage(QWidget):
         data["snapshot_path"] = self.snapshot_path.text().strip()
         data["auto_snapshot"] = self.auto_snapshot.isChecked()
         data["theme"] = self.theme.currentText()
+        data["sidebar_auto_hide"] = self.sidebar_auto_hide.isChecked()
+        data["sidebar_hover_expand"] = self.sidebar_hover_expand.isChecked()
+        data["sidebar_overlay_navigation"] = self.sidebar_overlay_navigation.isChecked()
+        data["sidebar_compact_icons"] = self.sidebar_compact_icons.isChecked()
+        data["sidebar_fullscreen_workspace"] = self.sidebar_fullscreen_workspace.isChecked()
         return data
 
     def _validate(self, data):
@@ -215,12 +239,14 @@ class SettingsPage(QWidget):
 
         self.manager.save(data)
         self.data = self.manager.load()
+        self.settings_saved.emit(self.data)
         QMessageBox.information(self, "Saved", "Settings saved successfully.")
 
     def reset_settings(self):
         self.manager.reset()
         self.data = self.manager.load()
         self._apply_to_form(self.data)
+        self.settings_saved.emit(self.data)
         QMessageBox.information(
             self,
             "Reset",

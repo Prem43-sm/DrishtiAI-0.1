@@ -1,6 +1,8 @@
 numpy<2.0
 pandas
 matplotlib
+mediapipe
+openpyxl
 scikit-learn
 opencv-python<4.12
 PySide6<6.10
