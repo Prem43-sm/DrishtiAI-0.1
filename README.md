@@ -1,4 +1,5 @@
 ﻿# DrishtiAI 0.1
+<img width="160" height="160" alt="logo0" src="https://github.com/user-attachments/assets/211e206b-7bae-4975-96b7-85ba027376bd" />
 
 DrishtiAI is a desktop classroom analytics application built with `PySide6`, `OpenCV`, `TensorFlow`, and `face-recognition`.
 It provides live camera-based monitoring with attendance tracking, multi-camera support, timetable integration, emotion analytics, and reporting workflows.
