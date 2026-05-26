@@ -31,6 +31,7 @@ from gui.ui.multi_camera_view_page import MultiCameraViewPage
 from gui.ui.emotion_analytics import EmotionAnalyticsPage
 from gui.ui.emotion_performance_page import EmotionPerformanceAnalyticsPage
 from gui.ui.focus_monitoring_page import FocusModeMonitoringPage
+from gui.ui.overall_student_report_page import OverallStudentReportPage
 
 # ⭐ TIMETABLE ENGINE
 from features.engine.timetable_engine import TimeTableEngine
@@ -181,6 +182,7 @@ class MainWindow(QMainWindow):
         btn_emotion_analytics = QPushButton("Emotion Analytics")
         btn_emotion_performance = QPushButton("Emotion Performance Analytics")
         btn_focus_monitoring = QPushButton("Focus Mode Monitoring")
+        btn_overall_report = QPushButton("Overall Student Report")
         btn_attendance = QPushButton("Attendance")
         btn_database = QPushButton("Database")
         btn_model = QPushButton("Model Performance")
@@ -197,6 +199,7 @@ class MainWindow(QMainWindow):
             ("Emotion Analytics", btn_emotion_analytics),
             ("Emotion Performance Analytics", btn_emotion_performance),
             ("Focus Mode Monitoring", btn_focus_monitoring),
+            ("Overall Student Report", btn_overall_report),
             ("Attendance", btn_attendance),
             ("Database", btn_database),
             ("Model Performance", btn_model),
@@ -263,6 +266,7 @@ class MainWindow(QMainWindow):
         self.emotion_analytics_page = EmotionAnalyticsPage()
         self.emotion_performance_page = EmotionPerformanceAnalyticsPage()
         self.focus_monitoring_page = FocusModeMonitoringPage()
+        self.overall_student_report_page = OverallStudentReportPage()
         self.attendance_page = AttendancePage()
         self.database_page = DatabasePage()
         self.model_page = ModelPage()
@@ -278,6 +282,7 @@ class MainWindow(QMainWindow):
         self.pages.addWidget(self.emotion_analytics_page)
         self.pages.addWidget(self.emotion_performance_page)
         self.pages.addWidget(self.focus_monitoring_page)
+        self.pages.addWidget(self.overall_student_report_page)
         self.pages.addWidget(self.attendance_page)
         self.pages.addWidget(self.database_page)
         self.pages.addWidget(self.model_page)
@@ -301,6 +306,7 @@ class MainWindow(QMainWindow):
             "Emotion Analytics": self.emotion_analytics_page,
             "Emotion Performance Analytics": self.emotion_performance_page,
             "Focus Mode Monitoring": self.focus_monitoring_page,
+            "Overall Student Report": self.overall_student_report_page,
             "Attendance": self.attendance_page,
             "Database": self.database_page,
             "Model Performance": self.model_page,
@@ -442,6 +448,7 @@ class MainWindow(QMainWindow):
             "Emotion Analytics": "EA",
             "Emotion Performance Analytics": "EP",
             "Focus Mode Monitoring": "FM",
+            "Overall Student Report": "OS",
             "Attendance": "AT",
             "Database": "DS",
             "Model Performance": "MP",
@@ -461,6 +468,7 @@ class MainWindow(QMainWindow):
             self.emotion_analytics_page,
             self.emotion_performance_page,
             self.focus_monitoring_page,
+            self.overall_student_report_page,
             self.attendance_page,
             self.database_page,
             self.model_page,
@@ -696,6 +704,10 @@ class MainWindow(QMainWindow):
     def show_login(self):
         login = LoginDialog()
         if login.exec() == QDialog.Accepted:
+            self.database_page.set_current_user(
+                login.authenticated_user_id,
+                login.authenticated_user_role,
+            )
             self.remove_blur()
         else:
             self.close()

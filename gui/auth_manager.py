@@ -4,6 +4,9 @@ import hashlib
 
 USERS_FILE = "gui/users.json"
 SECRET_KEY = "CNA#123"
+USER_ROLES = {
+    "Prem@123": "hod",
+}
 
 
 class AuthManager:
@@ -89,6 +92,10 @@ class AuthManager:
             return False
 
         return users[user_id] == self.hash_password(password)
+
+    def role_for_user(self, user_id):
+        user_id = (user_id or "").strip()
+        return USER_ROLES.get(user_id, "user")
 
     def reset_password(self, user_id, new_password):
         user_id = (user_id or "").strip()

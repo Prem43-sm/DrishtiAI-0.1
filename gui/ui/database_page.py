@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QUrl, QTime, QThread, Signal
 import os
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 import pandas as pd
@@ -29,6 +30,16 @@ from features.analytics.analytics_database import (
     analytics_database_path,
     fetch_reports,
     initialize_analytics_database,
+)
+from features.student_records_db import (
+    add_face_data,
+    delete_face_data,
+    get_or_create_student_for_face,
+    is_admin_role,
+    list_face_logs,
+    list_student_records,
+    log_face_action,
+    save_student_record,
 )
 from gui.face_memory import FaceMemory
 
@@ -57,6 +68,10 @@ class DatabasePage(QWidget):
     def __init__(self):
         super().__init__()
         self.report_worker = None
+        self.current_user_role = os.environ.get("DRISHTIAI_USER_ROLE", "user")
+        self.current_admin_id = os.environ.get("DRISHTIAI_ADMIN_ID", "local-admin")
+        self.selected_student_record = None
+        self.face_admin_buttons = []
 
         ensure_runtime_layout()
         os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
@@ -72,7 +87,7 @@ class DatabasePage(QWidget):
         self.tabs = QTabWidget()
 
         self.tabs.addTab(self.attendance_tab(), "Attendance")
-        self.tabs.addTab(self.face_db_tab(), "Face Database")
+        self.tabs.addTab(self.face_db_tab(), "Student Records Center")
         self.tabs.addTab(self.reports_tab(), "Reports")
         self.tabs.addTab(self.analytics_toolbox_tab(), "AI Analytics Toolbox")
         self.tabs.addTab(self.snapshots_tab(), "Snapshots")
@@ -181,18 +196,28 @@ class DatabasePage(QWidget):
     # ================= FACE DATABASE =================
     def face_db_tab(self):
         tab = QWidget()
+        layout = QVBoxLayout(tab)
+        self.student_center_tabs = QTabWidget()
+        self.student_center_tabs.addTab(self.student_records_tab(), "Student Records")
+        self.student_center_tabs.addTab(self.face_management_tab(), "Face Management")
+        if self._can_manage_faces():
+            self.student_center_tabs.addTab(self.audit_logs_tab(), "Audit Logs")
+        layout.addWidget(self.student_center_tabs)
+        self.load_classes()
+        self.load_student_records()
+        return tab
+
+    def student_records_tab(self):
+        tab = QWidget()
         main = QHBoxLayout(tab)
 
-        # LEFT → CLASS LIST
         left = QVBoxLayout()
-
         self.class_list = QListWidget()
-        self.class_list.itemClicked.connect(self.load_students)
-
+        self.class_list.itemClicked.connect(self.on_class_selected)
         self.new_class = QLineEdit()
         self.new_class.setPlaceholderText("New Class")
 
-        add_class_btn = QPushButton("➕ Add Class")
+        add_class_btn = QPushButton("Add Class")
         add_class_btn.clicked.connect(self.add_class)
         delete_class_btn = QPushButton("Delete Class")
         delete_class_btn.clicked.connect(self.delete_class)
@@ -203,34 +228,149 @@ class DatabasePage(QWidget):
         left.addWidget(add_class_btn)
         left.addWidget(delete_class_btn)
 
-        # RIGHT → STUDENTS
         right = QVBoxLayout()
-
+        form = QHBoxLayout()
+        self.student_year = QLineEdit(str(datetime.now().year))
+        self.student_year.setPlaceholderText("Academic Year")
+        self.student_semester = QLineEdit()
+        self.student_semester.setPlaceholderText("Semester")
+        self.student_roll = QLineEdit()
+        self.student_roll.setPlaceholderText("Roll Number")
         self.student_name = QLineEdit()
         self.student_name.setPlaceholderText("Student Name")
+        self.student_contact = QLineEdit()
+        self.student_contact.setPlaceholderText("Contact Number")
+        save_record_btn = QPushButton("Save Student Record")
+        save_record_btn.clicked.connect(self.save_student_record_ui)
 
-        add_student_btn = QPushButton("➕ Add Student Face")
-        add_student_btn.clicked.connect(self.add_student)
+        for widget in (
+            self.student_year,
+            self.student_semester,
+            self.student_roll,
+            self.student_name,
+            self.student_contact,
+            save_record_btn,
+        ):
+            form.addWidget(widget)
+
+        self.student_records_table = QTableWidget()
+        self.student_records_table.setColumnCount(10)
+        self.student_records_table.setHorizontalHeaderLabels(
+            [
+                "Academic Year",
+                "Class Name",
+                "Semester",
+                "Roll Number",
+                "Student Name",
+                "Contact Number",
+                "Face Status",
+                "Face Preview",
+                "Created Date",
+                "Last Updated",
+            ]
+        )
+        self.student_records_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.student_records_table.itemSelectionChanged.connect(self.sync_selected_student_from_table)
+
+        right.addLayout(form)
+        right.addWidget(self.student_records_table)
+        main.addLayout(left, 1)
+        main.addLayout(right, 4)
+        return tab
+
+    def face_management_tab(self):
+        tab = QWidget()
+        main = QHBoxLayout(tab)
 
         self.student_list = QListWidget()
-
-        delete_btn = QPushButton("❌ Delete Student")
-        delete_btn.clicked.connect(self.delete_student)
-
+        self.student_list.itemClicked.connect(self.on_face_student_selected)
         self.student_count = QLabel("Total Students: 0")
 
-        right.addWidget(self.student_name)
-        right.addWidget(add_student_btn)
-        right.addWidget(self.student_list)
-        right.addWidget(delete_btn)
-        right.addWidget(self.student_count)
+        left = QVBoxLayout()
+        left.addWidget(QLabel("STUDENTS"))
+        left.addWidget(self.student_list)
+        left.addWidget(self.student_count)
+
+        right = QVBoxLayout()
+        self.face_profile_label = QLabel("Select a student record")
+        self.face_status_label = QLabel("Face Status: Not Registered")
+        self.face_preview = QLabel("No Preview")
+        self.face_preview.setFixedSize(160, 160)
+        self.face_preview.setAlignment(Qt.AlignCenter)
+        self.face_preview.setStyleSheet("border:1px solid #333; background:#111;")
+
+        buttons = QHBoxLayout()
+        register_btn = QPushButton("Register Face")
+        register_btn.clicked.connect(self.add_student)
+        capture_btn = QPushButton("Capture Webcam")
+        capture_btn.clicked.connect(self.capture_student_face)
+        retrain_btn = QPushButton("Retrain")
+        retrain_btn.clicked.connect(self.retrain_selected_face)
+        delete_btn = QPushButton("Delete Face Data")
+        delete_btn.clicked.connect(self.delete_student)
+
+        self.face_admin_buttons = [register_btn, capture_btn, retrain_btn, delete_btn]
+        for button in self.face_admin_buttons:
+            button.setEnabled(self._can_manage_faces())
+            buttons.addWidget(button)
+
+        self.face_gallery = QListWidget()
+        self.face_gallery.setToolTip("Face sample gallery. Use Register Face to upload images.")
+
+        right.addWidget(self.face_profile_label)
+        right.addWidget(self.face_status_label)
+        right.addWidget(self.face_preview)
+        right.addLayout(buttons)
+        right.addWidget(QLabel("Face Preview Gallery"))
+        right.addWidget(self.face_gallery)
 
         main.addLayout(left, 1)
-        main.addLayout(right, 2)
-
-        self.load_classes()
-
+        main.addLayout(right, 3)
         return tab
+
+    def audit_logs_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        reload_btn = QPushButton("Reload Logs")
+        reload_btn.clicked.connect(self.load_face_logs)
+        self.face_logs_table = QTableWidget()
+        self.face_logs_table.setColumnCount(9)
+        self.face_logs_table.setHorizontalHeaderLabels(
+            ["Action", "Admin", "Student ID", "Roll", "Student", "Class", "Semester", "Timestamp", "Device"]
+        )
+        self.face_logs_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(reload_btn)
+        layout.addWidget(self.face_logs_table)
+        return tab
+
+    def _can_manage_faces(self):
+        return is_admin_role(self.current_user_role)
+
+    def set_current_user(self, user_id, role):
+        self.current_admin_id = str(user_id or "local-admin").strip() or "local-admin"
+        self.current_user_role = str(role or "user").strip().lower()
+        can_manage = self._can_manage_faces()
+        for button in getattr(self, "face_admin_buttons", []):
+            button.setEnabled(can_manage)
+        if hasattr(self, "student_center_tabs"):
+            has_audit_tab = any(
+                self.student_center_tabs.tabText(index) == "Audit Logs"
+                for index in range(self.student_center_tabs.count())
+            )
+            if can_manage and not has_audit_tab:
+                self.student_center_tabs.addTab(self.audit_logs_tab(), "Audit Logs")
+            elif not can_manage and has_audit_tab:
+                for index in range(self.student_center_tabs.count()):
+                    if self.student_center_tabs.tabText(index) == "Audit Logs":
+                        self.student_center_tabs.removeTab(index)
+                        break
+        self.load_student_records()
+
+    def _require_face_admin(self):
+        if self._can_manage_faces():
+            return True
+        QMessageBox.warning(self, "Permission Denied", "Only HOD/Admin can manage face data.")
+        return False
 
     def load_classes(self):
         current_combo = self.class_filter.currentText() if hasattr(self, "class_filter") else ""
@@ -247,7 +387,7 @@ class DatabasePage(QWidget):
 
         for item in sorted(os.listdir(base)):
             full = os.path.join(base, item)
-            if os.path.isdir(full):
+            if os.path.isdir(full) and not item.startswith("_"):
                 classes.append(item)
                 self.class_list.addItem(item)
                 if hasattr(self, "class_filter"):
@@ -307,39 +447,207 @@ class DatabasePage(QWidget):
 
         if hasattr(self, "current_class") and self.current_class == cls:
             delattr(self, "current_class")
-            self.student_list.clear()
-            self.student_count.setText("Total Students: 0")
+            if hasattr(self, "student_list"):
+                self.student_list.clear()
+            if hasattr(self, "student_count"):
+                self.student_count.setText("Total Students: 0")
 
         self.load_classes()
+        self.load_student_records()
 
     def load_students(self, item):
         self.current_class = item.text()
-        self.student_list.clear()
+        self.load_student_records()
 
-        path = os.path.join(str(KNOWN_FACES_DIR), self.current_class)
-        if not os.path.exists(path):
-            return
+    def on_class_selected(self, item):
+        self.current_class = item.text()
+        class_name, semester = self._split_class_semester(self.current_class)
+        self.student_semester.setText(semester)
+        self.load_student_records()
 
-        for file in os.listdir(path):
-            if file.endswith(".npy"):
-                self.student_list.addItem(file.replace(".npy", ""))
+    def _split_class_semester(self, class_name):
+        text = str(class_name or "").strip()
+        lower = text.lower()
+        if "sem" not in lower:
+            return text, ""
+        parts = text.rsplit(" ", 1)
+        if len(parts) != 2:
+            return text, ""
+        number = "".join(ch for ch in parts[1] if ch.isdigit())
+        if not number:
+            return parts[0], parts[1]
+        number_value = int(number)
+        suffix = "th"
+        if number_value % 100 not in (11, 12, 13):
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(number_value % 10, "th")
+        return parts[0], f"{number_value}{suffix}"
 
-        self.student_count.setText(f"Total Students: {self.student_list.count()}")
-
-    def add_student(self):
-        if not hasattr(self, "current_class"):
+    def save_student_record_ui(self):
+        cls = self.class_list.currentItem().text() if self.class_list.currentItem() else getattr(self, "current_class", "")
+        if not cls:
             QMessageBox.warning(self, "Error", "Select a class first")
             return
+        if not self.student_roll.text().strip() or not self.student_name.text().strip():
+            QMessageBox.warning(self, "Error", "Roll number and student name are required")
+            return
 
-        name = self.student_name.text().strip()
-        if not name:
+        _, fallback_semester = self._split_class_semester(cls)
+        save_student_record(
+            {
+                "academic_year": self.student_year.text().strip(),
+                "class_name": cls,
+                "semester": self.student_semester.text().strip() or fallback_semester,
+                "roll_number": self.student_roll.text().strip(),
+                "student_name": self.student_name.text().strip(),
+                "contact_number": self.student_contact.text().strip(),
+            }
+        )
+        self.load_student_records()
+        QMessageBox.information(self, "Saved", "Student record saved.")
+
+    def _sync_legacy_faces_to_records(self, class_name=None):
+        base = str(KNOWN_FACES_DIR)
+        if not os.path.exists(base):
+            return
+        class_names = [class_name] if class_name else [
+            item
+            for item in sorted(os.listdir(base))
+            if os.path.isdir(os.path.join(base, item)) and not item.startswith("_")
+        ]
+        for cls in class_names:
+            if not cls:
+                continue
+            _, semester = self._split_class_semester(cls)
+            class_path = os.path.join(base, cls)
+            if not os.path.exists(class_path):
+                continue
+            for file_name in os.listdir(class_path):
+                if file_name.endswith(".npy"):
+                    student_name = file_name.replace(".npy", "")
+                    student_id = get_or_create_student_for_face(cls, semester, student_name)
+                    with sqlite3.connect(str(analytics_database_path())) as conn:
+                        count = conn.execute(
+                            "SELECT COUNT(*) FROM face_data WHERE student_id = ?",
+                            (int(student_id),),
+                        ).fetchone()[0]
+                    if count == 0:
+                        try:
+                            embedding = np.load(os.path.join(class_path, file_name))
+                            add_face_data(int(student_id), "", embedding, "legacy-migration")
+                        except Exception:
+                            continue
+
+    def load_student_records(self):
+        if not hasattr(self, "student_records_table"):
+            return
+        cls = self.class_list.currentItem().text() if self.class_list.currentItem() else getattr(self, "current_class", "")
+        self._sync_legacy_faces_to_records(cls or None)
+        records = list_student_records(cls or None)
+        self.student_records_table.setRowCount(len(records))
+
+        if hasattr(self, "student_list"):
+            self.student_list.clear()
+        for row_index, row in enumerate(records):
+            face_count = int(row.get("face_count") or 0)
+            status = "Registered" if self._has_legacy_or_db_face(row) else "Not Registered"
+            preview = "Available" if row.get("preview_path") else ""
+            values = [
+                row.get("academic_year", ""),
+                row.get("class_name", ""),
+                row.get("semester", ""),
+                row.get("roll_number", ""),
+                row.get("student_name", ""),
+                row.get("contact_number", ""),
+                status,
+                preview,
+                row.get("created_at", ""),
+                row.get("updated_at", ""),
+            ]
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setData(Qt.UserRole, int(row["id"]))
+                self.student_records_table.setItem(row_index, column, item)
+
+            if hasattr(self, "student_list"):
+                list_item = QListWidgetItem(f"{row.get('roll_number', '')} - {row.get('student_name', '')} ({status})")
+                list_item.setData(Qt.UserRole, int(row["id"]))
+                list_item.setData(Qt.UserRole + 1, row)
+                self.student_list.addItem(list_item)
+
+        if hasattr(self, "student_count"):
+            self.student_count.setText(f"Total Students: {len(records)}")
+        if hasattr(self, "face_logs_table"):
+            self.load_face_logs()
+
+    def _has_legacy_or_db_face(self, row):
+        if int(row.get("face_count") or 0) > 0:
+            return True
+        path = os.path.join(str(KNOWN_FACES_DIR), str(row.get("class_name", "")), f"{row.get('student_name', '')}.npy")
+        return os.path.exists(path)
+
+    def sync_selected_student_from_table(self):
+        selected = self.student_records_table.selectedItems() if hasattr(self, "student_records_table") else []
+        if not selected:
+            return
+        student_id = int(selected[0].data(Qt.UserRole))
+        for row in list_student_records():
+            if int(row["id"]) == student_id:
+                self._set_selected_student(row)
+                return
+
+    def on_face_student_selected(self, item):
+        row = item.data(Qt.UserRole + 1)
+        if row:
+            self._set_selected_student(row)
+
+    def _set_selected_student(self, row):
+        self.selected_student_record = row
+        status = "Registered" if self._has_legacy_or_db_face(row) else "Not Registered"
+        self.face_profile_label.setText(
+            f"{row.get('student_name', '')} | Roll: {row.get('roll_number', '')} | {row.get('class_name', '')}"
+        )
+        self.face_status_label.setText(f"Face Status: {status}")
+        self.load_face_gallery(int(row["id"]))
+
+    def load_face_gallery(self, student_id):
+        if not hasattr(self, "face_gallery"):
+            return
+        self.face_gallery.clear()
+        preview_path = ""
+        with sqlite3.connect(str(analytics_database_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, image_path, created_at FROM face_data WHERE student_id = ? ORDER BY created_at DESC",
+                (int(student_id),),
+            ).fetchall()
+        for row in rows:
+            self.face_gallery.addItem(f"Sample {row['id']} | {row['created_at']}")
+            if not preview_path and row["image_path"]:
+                preview_path = row["image_path"]
+        if preview_path and os.path.exists(preview_path):
+            self.face_preview.setPixmap(QPixmap(preview_path).scaled(160, 160, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            self.face_preview.setPixmap(QPixmap())
+            self.face_preview.setText("No Preview")
+
+    def add_student(self):
+        if not self._require_face_admin():
+            return
+        row = self.selected_student_record
+        if not row:
+            QMessageBox.warning(self, "Error", "Select a student record first")
             return
 
         file, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg)")
         if not file:
             return
+        self._register_face_image(row, file)
 
+    def _register_face_image(self, row, file):
         img = cv2.imread(file)
+        if img is None:
+            QMessageBox.warning(self, "Error", "Unable to read image")
+            return
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         loc = face_recognition.face_locations(rgb)
@@ -349,31 +657,105 @@ class DatabasePage(QWidget):
 
         enc = face_recognition.face_encodings(rgb, loc)[0]
 
-        np.save(os.path.join(str(KNOWN_FACES_DIR), self.current_class, f"{name}.npy"), enc)
+        class_name = str(row.get("class_name", ""))
+        student_name = str(row.get("student_name", ""))
+        face_dir = os.path.join(str(KNOWN_FACES_DIR), class_name)
+        sample_dir = os.path.join(face_dir, "_face_images", self._safe_file_stem(student_name))
+        os.makedirs(sample_dir, exist_ok=True)
+        os.makedirs(face_dir, exist_ok=True)
+        image_path = os.path.join(sample_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
+        cv2.imwrite(image_path, img)
 
-        self.student_name.clear()
-        self.load_students(QListWidgetItem(self.current_class))
-
-        # 🔥 IMPORTANT FIX
+        np.save(os.path.join(face_dir, f"{student_name}.npy"), enc)
+        add_face_data(int(row["id"]), image_path, enc, self.current_admin_id)
         FaceMemory.get_instance().reload()
+        self.load_student_records()
+        self._set_selected_student(dict(row))
 
-        QMessageBox.information(self, "Success", "Student Added ✅")
+        QMessageBox.information(self, "Success", "Face data registered.")
 
-    def delete_student(self):
-        item = self.student_list.currentItem()
-        if not item:
+    def capture_student_face(self):
+        if not self._require_face_admin():
+            return
+        row = self.selected_student_record
+        if not row:
+            QMessageBox.warning(self, "Error", "Select a student record first")
             return
 
-        path = os.path.join(str(KNOWN_FACES_DIR), self.current_class, f"{item.text()}.npy")
+        cap = cv2.VideoCapture(0)
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            QMessageBox.warning(self, "Error", "Unable to capture from webcam")
+            return
 
-        reply = QMessageBox.question(self, "Delete", "Delete student?")
+        class_name = str(row.get("class_name", ""))
+        student_name = str(row.get("student_name", ""))
+        sample_dir = os.path.join(str(KNOWN_FACES_DIR), class_name, "_face_images", self._safe_file_stem(student_name))
+        os.makedirs(sample_dir, exist_ok=True)
+        image_path = os.path.join(sample_dir, f"webcam_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg")
+        cv2.imwrite(image_path, frame)
+        self._register_face_image(row, image_path)
+
+    def retrain_selected_face(self):
+        if not self._require_face_admin():
+            return
+        row = self.selected_student_record
+        if not row:
+            QMessageBox.warning(self, "Error", "Select a student record first")
+            return
+        log_face_action("retrain", int(row["id"]), self.current_admin_id)
+        FaceMemory.get_instance().reload()
+        self.load_face_logs()
+        QMessageBox.information(self, "Done", "Face embeddings reloaded for recognition.")
+
+    def _safe_file_stem(self, value):
+        return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(value)).strip("_") or "student"
+
+    def delete_student(self):
+        if not self._require_face_admin():
+            return
+        row = self.selected_student_record
+        if not row:
+            QMessageBox.warning(self, "Error", "Select a student record first")
+            return
+
+        path = os.path.join(str(KNOWN_FACES_DIR), str(row.get("class_name", "")), f"{row.get('student_name', '')}.npy")
+
+        reply = QMessageBox.question(self, "Delete", "Delete only face data? Academic record will remain safe.")
         if reply == QMessageBox.Yes:
-            os.remove(path)
-            self.load_students(QListWidgetItem(self.current_class))
+            for image_path in delete_face_data(int(row["id"]), self.current_admin_id):
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+            if os.path.exists(path):
+                os.remove(path)
             FaceMemory.get_instance().reload()
+            self.load_student_records()
+            self._set_selected_student(dict(row))
+
+    def load_face_logs(self):
+        if not hasattr(self, "face_logs_table"):
+            return
+        logs = list_face_logs()
+        self.face_logs_table.setRowCount(len(logs))
+        for row_index, row in enumerate(logs):
+            values = [
+                row.get("action_type", ""),
+                row.get("admin_id", ""),
+                row.get("student_id", ""),
+                row.get("roll_number", ""),
+                row.get("student_name", ""),
+                row.get("class_name", ""),
+                row.get("semester", ""),
+                row.get("timestamp", ""),
+                row.get("device_info", ""),
+            ]
+            for column, value in enumerate(values):
+                self.face_logs_table.setItem(row_index, column, QTableWidgetItem(str(value)))
 
     def showEvent(self, event):
         self.load_classes()
+        self.load_student_records()
         super().showEvent(event)
 
     # ================= REPORTS =================

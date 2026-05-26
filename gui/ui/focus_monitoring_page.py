@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QAbstractItemView,
 )
 
 from features.analytics.ai_insight_engine import focus_insights
@@ -81,6 +82,7 @@ class FocusModeMonitoringPage(QWidget):
         self.worker = None
         self.latest_report = None
         self.latest_report_id = None
+        self.report_rows = []
         self._build_ui()
         self.reload_filters()
         self.load_reports()
@@ -163,6 +165,9 @@ class FocusModeMonitoringPage(QWidget):
         self.report_table = QTableWidget()
         self.report_table.setColumnCount(8)
         self.report_table.setHorizontalHeaderLabels(["Student", "Date", "Focus", "Attention", "Distraction", "Movement", "Sleep", "Status"])
+        self.report_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.report_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.report_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         root.addWidget(self.report_table)
 
         self.class_filter.currentIndexChanged.connect(self._populate_students)
@@ -172,7 +177,8 @@ class FocusModeMonitoringPage(QWidget):
         self.export_pdf_btn.clicked.connect(lambda: self.export_report("PDF"))
         self.export_csv_btn.clicked.connect(lambda: self.export_report("CSV"))
         self.export_excel_btn.clicked.connect(lambda: self.export_report("Excel"))
-        self._set_export_enabled(False)
+        self.report_table.itemSelectionChanged.connect(self.on_report_selection_changed)
+        self._set_export_enabled(True)
 
     def reload_filters(self):
         current = self.class_filter.currentText()
@@ -219,6 +225,7 @@ class FocusModeMonitoringPage(QWidget):
         if save:
             self.latest_report = report
             self.latest_report_id = save_focus_report(report)
+            self.latest_report["id"] = self.latest_report_id
             self.update_stats(report)
             self.load_reports()
             self._set_export_enabled(True)
@@ -252,20 +259,36 @@ class FocusModeMonitoringPage(QWidget):
         self.stop_btn.setEnabled(False)
 
     def export_report(self, format_name):
+        if self.worker is not None and self.latest_report:
+            reply = QMessageBox.question(
+                self,
+                "Export Live Report",
+                "Tracking is still running. Export the current live focus summary?",
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         if not self.latest_report:
+            QMessageBox.information(
+                self,
+                "Export Report",
+                "No focus report is available yet. Start tracking, then stop and save, or select a saved report from the table.",
+            )
             return
+
         try:
             path = export_focus_report(self.latest_report, format_name)
             if self.latest_report_id:
                 update_report_path("focus_reports", self.latest_report_id, path)
+                self.latest_report["report_path"] = str(path)
             QMessageBox.information(self, "Export Complete", f"Report saved:\n{path}")
         except Exception as exc:
             QMessageBox.warning(self, "Export Failed", str(exc))
 
     def load_reports(self):
-        rows = fetch_reports("focus_reports", limit=100)
-        self.report_table.setRowCount(len(rows))
-        for row_index, row in enumerate(rows):
+        self.report_rows = fetch_reports("focus_reports", limit=100)
+        self.report_table.setRowCount(len(self.report_rows))
+        for row_index, row in enumerate(self.report_rows):
             values = [
                 row.get("student_id", ""),
                 row.get("date", ""),
@@ -278,6 +301,21 @@ class FocusModeMonitoringPage(QWidget):
             ]
             for col, value in enumerate(values):
                 self.report_table.setItem(row_index, col, QTableWidgetItem(str(value)))
+        if self.report_rows and self.latest_report is None:
+            self.report_table.selectRow(0)
+            self.on_report_selection_changed()
+        self._set_export_enabled(True)
+
+    def on_report_selection_changed(self):
+        row_index = self.report_table.currentRow()
+        if row_index < 0 or row_index >= len(self.report_rows):
+            return
+        selected = dict(self.report_rows[row_index])
+        self.latest_report = selected
+        self.latest_report_id = selected.get("id")
+        self.update_stats(selected)
+        self._set_export_enabled(True)
+        self.status_label.setText(f"Status: Selected - {selected.get('status', 'Saved Report')}")
 
     def _set_export_enabled(self, enabled):
         for button in (self.export_pdf_btn, self.export_csv_btn, self.export_excel_btn):

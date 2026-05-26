@@ -1,7 +1,9 @@
 import calendar
 import json
 import os
+import re
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import QDate
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.project_paths import ATTENDANCE_DIR, KNOWN_FACES_DIR, TIMETABLE_DIR, ensure_runtime_layout
+from features.student_records_db import list_student_records
 
 
 class AttendancePage(QWidget):
@@ -58,6 +61,9 @@ class AttendancePage(QWidget):
         export_btn = QPushButton("Export Excel")
         export_btn.clicked.connect(self.export_excel)
 
+        class_month_export_btn = QPushButton("Export Class Month")
+        class_month_export_btn.clicked.connect(self.export_class_month_report)
+
         top_bar.addWidget(QLabel("Class:"))
         top_bar.addWidget(self.class_selector)
         top_bar.addWidget(QLabel("Date:"))
@@ -65,6 +71,7 @@ class AttendancePage(QWidget):
         top_bar.addWidget(load_btn)
         top_bar.addStretch()
         top_bar.addWidget(export_btn)
+        top_bar.addWidget(class_month_export_btn)
         main_layout.addLayout(top_bar)
 
         self.search_input = QLineEdit()
@@ -285,6 +292,30 @@ class AttendancePage(QWidget):
     # ---------------------------------------------------------
     # MONTHLY EXPORT (kept)
     # ---------------------------------------------------------
+    def export_class_month_report(self):
+        cls = self.class_selector.currentText().strip()
+        if not cls:
+            QMessageBox.warning(self, "Error", "Select a class first")
+            return
+
+        selected_date = self.date_picker.date()
+        year = int(selected_date.year())
+        month = int(selected_date.month())
+        class_name, semester = self._split_class_and_semester(cls)
+        month_name = datetime(year, month, 1).strftime("%B")
+        output_dir = Path(self.base_dir) / f"{year}_attendance"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        file_name = f"{self._safe_filename(class_name)}_{self._safe_filename(semester)}_{month_name}.xlsx"
+        output_path = output_dir / file_name
+
+        report_rows, date_periods = self._build_class_month_report_rows(cls, class_name, semester, year, month)
+        if not report_rows:
+            QMessageBox.warning(self, "Error", "No students found for selected class")
+            return
+
+        self._write_class_month_workbook(output_path, report_rows, date_periods)
+        QMessageBox.information(self, "Done", f"Class monthly attendance saved:\n{output_path}")
+
     def export_excel(self):
         cls = self.class_selector.currentText().strip()
         if not cls:
@@ -323,6 +354,208 @@ class AttendancePage(QWidget):
                 report_df.to_excel(writer, sheet_name=sheet_name, index=True)
 
         QMessageBox.information(self, "Done", "Monthly report exported successfully")
+
+    def _build_class_month_report_rows(self, cls, class_name, semester, year, month):
+        days_in_month = calendar.monthrange(year, month)[1]
+        today = datetime.now().date()
+        students = self._get_students_for_class(cls)
+        student_details = self._student_details_for_class(cls)
+        timetable = self._load_timetable(cls)
+        date_periods = []
+        rows = []
+
+        for day in range(1, days_in_month + 1):
+            date_obj = datetime(year, month, day).date()
+            date_str = date_obj.strftime("%Y-%m-%d")
+            day_periods = self._get_period_details_for_date(cls, date_str, timetable)
+            for period_info in day_periods:
+                date_periods.append(
+                    {
+                        "date": date_str,
+                        "display_date": date_obj.strftime("%d-%m-%Y"),
+                        "period": str(period_info.get("period", "")),
+                        "subject": str(period_info.get("subject", "")).strip(),
+                    }
+                )
+
+        marks = self._load_month_attendance_marks(cls, year, month)
+        for index, name in enumerate(students, start=1):
+            student_marks = []
+            for item in date_periods:
+                date_obj = datetime.strptime(item["date"], "%Y-%m-%d").date()
+                key = (name, item["date"], item["period"])
+                if key in marks:
+                    student_marks.append(marks[key])
+                elif date_obj > today:
+                    student_marks.append("")
+                elif date_obj.weekday() == 6:
+                    student_marks.append("H")
+                else:
+                    student_marks.append("A")
+
+            rows.append(
+                {
+                    "Batch ( year )": year,
+                    "Class name": class_name,
+                    "Semester": semester,
+                    "Roll no.": student_details.get(name, {}).get("roll_number", ""),
+                    "Name": name,
+                    "contact no.": student_details.get(name, {}).get("contact_number", ""),
+                    "marks": student_marks,
+                }
+            )
+
+        return rows, date_periods
+
+    def _student_details_for_class(self, cls):
+        details = {}
+        try:
+            records = list_student_records(cls)
+        except Exception:
+            records = []
+        for row in records:
+            name = str(row.get("student_name", "")).strip()
+            if name:
+                details[name] = row
+        return details
+
+    def _load_month_attendance_marks(self, cls, year, month):
+        marks = {}
+        class_path = Path(self.base_dir) / cls
+        if not class_path.exists():
+            return marks
+
+        prefix = f"{year:04d}-{month:02d}-"
+        for csv_file in sorted(class_path.glob(f"{prefix}*_P*.csv")):
+            date_part = csv_file.name.split("_P", 1)[0]
+            period = csv_file.stem.split("_P")[-1].strip()
+            try:
+                data = pd.read_csv(csv_file)
+            except Exception:
+                continue
+            if "Name" not in data.columns:
+                continue
+            for _, row in data.iterrows():
+                name = str(row.get("Name", "")).strip()
+                if not name:
+                    continue
+                time_str = str(row.get("Time", "")).strip()
+                if time_str and time_str.lower() != "nan":
+                    mark = f"P ({time_str})"
+                else:
+                    mark = "P"
+                marks[(name, date_part, period)] = mark
+        return marks
+
+    def _write_class_month_workbook(self, output_path, rows, date_periods):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Attendance"
+
+        fixed_headers = ["Batch ( year )", "Class name", "Semester", "Roll no.", "Name", "contact no."]
+        thin = Side(style="thin", color="D9D9D9")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        header_fill = PatternFill("solid", fgColor="F3F6F4")
+        header_font = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        for col_index, header in enumerate(fixed_headers, start=1):
+            sheet.merge_cells(start_row=1, start_column=col_index, end_row=2, end_column=col_index)
+            cell = sheet.cell(row=1, column=col_index, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+            cell.border = border
+
+        start_col = len(fixed_headers) + 1
+        for offset, item in enumerate(date_periods):
+            col_index = start_col + offset
+            top = sheet.cell(row=1, column=col_index, value=f"date ( dd-mm-yyyy ) Example - {item['display_date']}")
+            bottom = sheet.cell(row=2, column=col_index, value=item["subject"] or f"P{item['period']}")
+            for cell in (top, bottom):
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = center
+                cell.border = border
+
+        for row_index, row in enumerate(rows, start=3):
+            values = [row[h] for h in fixed_headers] + row["marks"]
+            for col_index, value in enumerate(values, start=1):
+                cell = sheet.cell(row=row_index, column=col_index, value=value)
+                cell.alignment = center
+                cell.border = border
+
+        max_col = len(fixed_headers) + len(date_periods)
+        for col_index in range(1, max_col + 1):
+            letter = get_column_letter(col_index)
+            if col_index == 5:
+                sheet.column_dimensions[letter].width = 26
+            elif col_index <= len(fixed_headers):
+                sheet.column_dimensions[letter].width = 16
+            else:
+                sheet.column_dimensions[letter].width = 18
+
+        sheet.freeze_panes = "G3"
+        workbook.save(output_path)
+
+    def _load_timetable(self, class_name):
+        timetable_file = Path(TIMETABLE_DIR) / f"{class_name}.json"
+        if not timetable_file.exists():
+            return {"days": {}}
+        try:
+            with open(timetable_file, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            return {"days": {}}
+
+    def _get_period_details_for_date(self, cls, date_str, timetable):
+        periods = {}
+        try:
+            day_name = datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
+        except Exception:
+            day_name = ""
+
+        for item in timetable.get("days", {}).get(day_name, []):
+            period = str(item.get("period", "")).strip()
+            if period:
+                periods[period] = {
+                    "period": period,
+                    "subject": item.get("subject", ""),
+                }
+
+        class_path = Path(self.base_dir) / cls
+        if class_path.exists():
+            for csv_file in sorted(class_path.glob(f"{date_str}_P*.csv")):
+                period = csv_file.stem.split("_P")[-1].strip()
+                if period and period not in periods:
+                    periods[period] = {"period": period, "subject": f"P{period}"}
+
+        if not periods:
+            periods["1"] = {"period": "1", "subject": "P1"}
+
+        return [periods[key] for key in sorted(periods, key=lambda value: int(value) if value.isdigit() else 9999)]
+
+    def _split_class_and_semester(self, class_name):
+        text = str(class_name or "").strip()
+        match = re.search(r"\b(\d+)\s*(?:sem|semester|st|nd|rd|th)\b", text, flags=re.IGNORECASE)
+        if not match:
+            return text, "Semester"
+
+        number = int(match.group(1))
+        suffix = "th"
+        if number % 100 not in (11, 12, 13):
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+        semester = f"{number}{suffix}"
+        clean_class = (text[: match.start()] + text[match.end() :]).strip(" -_")
+        return clean_class or text, semester
+
+    def _safe_filename(self, value):
+        safe = re.sub(r'[<>:"/\\|?*\s]+', "_", str(value or "").strip())
+        return safe.strip("_") or "Attendance"
 
     def _load_monthly_data(self, class_path, cls):
         groups = {}

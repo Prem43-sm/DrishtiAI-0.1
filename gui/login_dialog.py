@@ -19,6 +19,8 @@ class LoginDialog(QDialog):
         super().__init__()
 
         self.auth = AuthManager()
+        self.authenticated_user_id = ""
+        self.authenticated_user_role = "user"
 
         self.setWindowTitle("Login Required")
         self.setFixedWidth(380)
@@ -111,7 +113,10 @@ class LoginDialog(QDialog):
         return page
 
     def handle_login(self):
-        if self.auth.login(self.login_user.text(), self.login_password.text()):
+        user_id = self.login_user.text().strip()
+        if self.auth.login(user_id, self.login_password.text()):
+            self.authenticated_user_id = user_id
+            self.authenticated_user_role = self.auth.role_for_user(user_id)
             self.accept()
         else:
             QMessageBox.warning(self, "Error", "Invalid user ID or password")
