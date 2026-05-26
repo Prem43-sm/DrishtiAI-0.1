@@ -121,6 +121,11 @@ class AttendancePage(QWidget):
 
     def _get_students_for_class(self, cls):
         students = set()
+        for row in self._student_details_for_class(cls).values():
+            if str(row.get("status", "Active")).lower() != "left":
+                name = str(row.get("student_name", "")).strip()
+                if name:
+                    students.add(name)
         class_dir = os.path.join(self.face_dir, cls)
 
         if os.path.exists(class_dir):

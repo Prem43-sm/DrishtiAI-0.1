@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from core.project_paths import ATTENDANCE_DIR, KNOWN_FACES_DIR, ensure_runtime_layout
+from features.student_records_db import list_student_records
 
 
 EMOTION_LABELS = ["happy", "sad", "angry", "neutral", "fear", "surprise"]
@@ -14,6 +15,10 @@ EMOTION_LABELS = ["happy", "sad", "angry", "neutral", "fear", "surprise"]
 def discover_classes() -> list[str]:
     ensure_runtime_layout()
     classes = set()
+    for row in list_student_records():
+        class_name = str(row.get("class_name", "")).strip()
+        if class_name:
+            classes.add(class_name)
     for root in (Path(KNOWN_FACES_DIR), Path(ATTENDANCE_DIR)):
         if not root.exists():
             continue
@@ -26,6 +31,12 @@ def discover_classes() -> list[str]:
 def discover_students(class_name: str = "All Classes") -> list[str]:
     ensure_runtime_layout()
     students = set()
+    for row in list_student_records(None if class_name == "All Classes" else class_name):
+        if str(row.get("status", "Active")).lower() == "left":
+            continue
+        name = str(row.get("student_name", "")).strip()
+        if name:
+            students.add(name)
     known_root = Path(KNOWN_FACES_DIR)
     if known_root.exists():
         class_dirs = (
@@ -162,4 +173,3 @@ def _infer_date_from_filename(filename: str) -> str:
     if match:
         return match.group(1)
     return pd.Timestamp.now().strftime("%Y-%m-%d")
-

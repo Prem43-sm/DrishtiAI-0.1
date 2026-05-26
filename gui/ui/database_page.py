@@ -39,7 +39,9 @@ from features.student_records_db import (
     list_face_logs,
     list_student_records,
     log_face_action,
+    mark_student_left,
     save_student_record,
+    update_student_record,
 )
 from gui.face_memory import FaceMemory
 
@@ -72,6 +74,7 @@ class DatabasePage(QWidget):
         self.current_admin_id = os.environ.get("DRISHTIAI_ADMIN_ID", "local-admin")
         self.selected_student_record = None
         self.face_admin_buttons = []
+        self.student_record_admin_buttons = []
 
         ensure_runtime_layout()
         os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
@@ -212,15 +215,21 @@ class DatabasePage(QWidget):
         main = QHBoxLayout(tab)
 
         left = QVBoxLayout()
+        left.setContentsMargins(0, 0, 6, 0)
         self.class_list = QListWidget()
+        self.class_list.setMaximumWidth(190)
+        self.class_list.setMinimumWidth(150)
         self.class_list.itemClicked.connect(self.on_class_selected)
         self.new_class = QLineEdit()
         self.new_class.setPlaceholderText("New Class")
+        self.new_class.setMaximumWidth(190)
 
         add_class_btn = QPushButton("Add Class")
         add_class_btn.clicked.connect(self.add_class)
         delete_class_btn = QPushButton("Delete Class")
         delete_class_btn.clicked.connect(self.delete_class)
+        for button in (add_class_btn, delete_class_btn):
+            button.setMaximumWidth(190)
 
         left.addWidget(QLabel("CLASSES"))
         left.addWidget(self.class_list)
@@ -242,6 +251,15 @@ class DatabasePage(QWidget):
         self.student_contact.setPlaceholderText("Contact Number")
         save_record_btn = QPushButton("Save Student Record")
         save_record_btn.clicked.connect(self.save_student_record_ui)
+        edit_record_btn = QPushButton("Edit Selected")
+        edit_record_btn.clicked.connect(self.edit_selected_student_record)
+        edit_record_btn.setToolTip("Select a row, change the fields, then click Edit Selected.")
+        left_record_btn = QPushButton("Mark Left")
+        left_record_btn.clicked.connect(self.mark_selected_student_left)
+        left_record_btn.setToolTip("Mark the selected student as left without deleting the record.")
+        self.student_record_admin_buttons = [save_record_btn, edit_record_btn, left_record_btn]
+        for button in self.student_record_admin_buttons:
+            button.setEnabled(self._can_manage_faces())
 
         for widget in (
             self.student_year,
@@ -250,6 +268,8 @@ class DatabasePage(QWidget):
             self.student_name,
             self.student_contact,
             save_record_btn,
+            edit_record_btn,
+            left_record_btn,
         ):
             form.addWidget(widget)
 
@@ -266,7 +286,7 @@ class DatabasePage(QWidget):
                 "Face Status",
                 "Face Preview",
                 "Created Date",
-                "Last Updated",
+                "Left",
             ]
         )
         self.student_records_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -274,8 +294,10 @@ class DatabasePage(QWidget):
 
         right.addLayout(form)
         right.addWidget(self.student_records_table)
+        main.setStretch(0, 1)
+        main.setStretch(1, 8)
         main.addLayout(left, 1)
-        main.addLayout(right, 4)
+        main.addLayout(right, 8)
         return tab
 
     def face_management_tab(self):
@@ -352,6 +374,8 @@ class DatabasePage(QWidget):
         can_manage = self._can_manage_faces()
         for button in getattr(self, "face_admin_buttons", []):
             button.setEnabled(can_manage)
+        for button in getattr(self, "student_record_admin_buttons", []):
+            button.setEnabled(can_manage)
         if hasattr(self, "student_center_tabs"):
             has_audit_tab = any(
                 self.student_center_tabs.tabText(index) == "Audit Logs"
@@ -370,6 +394,12 @@ class DatabasePage(QWidget):
         if self._can_manage_faces():
             return True
         QMessageBox.warning(self, "Permission Denied", "Only HOD/Admin can manage face data.")
+        return False
+
+    def _require_student_admin(self):
+        if self._can_manage_faces():
+            return True
+        QMessageBox.warning(self, "Permission Denied", "Only HOD/Admin can modify student records.")
         return False
 
     def load_classes(self):
@@ -483,6 +513,8 @@ class DatabasePage(QWidget):
         return parts[0], f"{number_value}{suffix}"
 
     def save_student_record_ui(self):
+        if not self._require_student_admin():
+            return
         cls = self.class_list.currentItem().text() if self.class_list.currentItem() else getattr(self, "current_class", "")
         if not cls:
             QMessageBox.warning(self, "Error", "Select a class first")
@@ -492,7 +524,7 @@ class DatabasePage(QWidget):
             return
 
         _, fallback_semester = self._split_class_semester(cls)
-        save_student_record(
+        student_id = save_student_record(
             {
                 "academic_year": self.student_year.text().strip(),
                 "class_name": cls,
@@ -502,8 +534,125 @@ class DatabasePage(QWidget):
                 "contact_number": self.student_contact.text().strip(),
             }
         )
+        log_face_action("student_create", int(student_id), self.current_admin_id, "student-records")
         self.load_student_records()
         QMessageBox.information(self, "Saved", "Student record saved.")
+
+    def edit_selected_student_record(self):
+        if not self._require_student_admin():
+            return
+        if not self.selected_student_record:
+            QMessageBox.warning(self, "Error", "Select a student row first")
+            return
+        cls = self.class_list.currentItem().text() if self.class_list.currentItem() else getattr(self, "current_class", "")
+        if not cls:
+            QMessageBox.warning(self, "Error", "Select a class first")
+            return
+        if not self.student_roll.text().strip() or not self.student_name.text().strip():
+            QMessageBox.warning(self, "Error", "Roll number and student name are required")
+            return
+
+        _, fallback_semester = self._split_class_semester(cls)
+        old_row = dict(self.selected_student_record)
+        new_student_name = self.student_name.text().strip()
+        update_student_record(
+            int(old_row["id"]),
+            {
+                "academic_year": self.student_year.text().strip(),
+                "class_name": cls,
+                "semester": self.student_semester.text().strip() or fallback_semester,
+                "roll_number": self.student_roll.text().strip(),
+                "student_name": new_student_name,
+                "contact_number": self.student_contact.text().strip(),
+            },
+        )
+        self._move_legacy_face_file(old_row, cls, new_student_name)
+        self._sync_attendance_student_identity(old_row, cls, new_student_name)
+        log_face_action("student_update", int(old_row["id"]), self.current_admin_id, "student-records")
+        self.load_student_records()
+        QMessageBox.information(self, "Updated", "Selected student record updated.")
+
+    def mark_selected_student_left(self):
+        if not self._require_student_admin():
+            return
+        if not self.selected_student_record:
+            QMessageBox.warning(self, "Error", "Select a student row first")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Mark Left",
+            "Mark selected student as left? The record and face data will stay saved.",
+        )
+        if reply != QMessageBox.Yes:
+            return
+        mark_student_left(int(self.selected_student_record["id"]))
+        log_face_action("student_left", int(self.selected_student_record["id"]), self.current_admin_id, "student-records")
+        self.load_student_records()
+        QMessageBox.information(self, "Updated", "Student marked as left.")
+
+    def _move_legacy_face_file(self, old_row, new_class_name, new_student_name):
+        old_path = os.path.join(
+            str(KNOWN_FACES_DIR),
+            str(old_row.get("class_name", "")),
+            f"{old_row.get('student_name', '')}.npy",
+        )
+        new_dir = os.path.join(str(KNOWN_FACES_DIR), str(new_class_name))
+        new_path = os.path.join(new_dir, f"{new_student_name}.npy")
+        if old_path == new_path or not os.path.exists(old_path):
+            return
+        os.makedirs(new_dir, exist_ok=True)
+        shutil.move(old_path, new_path)
+        FaceMemory.get_instance().reload()
+
+    def _sync_attendance_student_identity(self, old_row, new_class_name, new_student_name):
+        old_class = str(old_row.get("class_name", "")).strip()
+        old_name = str(old_row.get("student_name", "")).strip()
+        if not old_class or not old_name:
+            return
+        source_dir = os.path.join(str(ATTENDANCE_DIR), old_class)
+        if not os.path.exists(source_dir):
+            return
+
+        target_dir = os.path.join(str(ATTENDANCE_DIR), str(new_class_name))
+        os.makedirs(target_dir, exist_ok=True)
+        class_changed = old_class != str(new_class_name)
+
+        for file_name in sorted(os.listdir(source_dir)):
+            if not file_name.endswith(".csv"):
+                continue
+            source_path = os.path.join(source_dir, file_name)
+            try:
+                data = pd.read_csv(source_path)
+            except Exception:
+                continue
+            if "Name" not in data.columns:
+                continue
+            mask = data["Name"].astype(str).str.strip() == old_name
+            if not mask.any():
+                continue
+
+            matched = data.loc[mask].copy()
+            data.loc[mask, "Name"] = new_student_name
+            if "Class" in data.columns:
+                data.loc[mask, "Class"] = new_class_name
+                matched["Class"] = new_class_name
+            matched["Name"] = new_student_name
+
+            if class_changed:
+                target_path = os.path.join(target_dir, file_name)
+                remaining = data.loc[~mask].copy()
+                remaining.to_csv(source_path, index=False)
+                if os.path.exists(target_path):
+                    try:
+                        target_data = pd.read_csv(target_path)
+                    except Exception:
+                        target_data = pd.DataFrame(columns=data.columns)
+                    target_data = pd.concat([target_data, matched], ignore_index=True)
+                else:
+                    target_data = matched
+                target_data.to_csv(target_path, index=False)
+            else:
+                data.to_csv(source_path, index=False)
 
     def _sync_legacy_faces_to_records(self, class_name=None):
         base = str(KNOWN_FACES_DIR)
@@ -560,10 +709,18 @@ class DatabasePage(QWidget):
                 row.get("contact_number", ""),
                 status,
                 preview,
-                row.get("created_at", ""),
-                row.get("updated_at", ""),
+                self._date_display(row.get("created_at", "")),
+                self._left_display(row),
             ]
             for column, value in enumerate(values):
+                if column == 7:
+                    preview_btn = QPushButton("View" if preview else "No Image")
+                    preview_btn.setEnabled(bool(preview))
+                    preview_btn.clicked.connect(
+                        lambda checked=False, student_id=int(row["id"]): self.show_face_preview_dialog(student_id)
+                    )
+                    self.student_records_table.setCellWidget(row_index, column, preview_btn)
+                    continue
                 item = QTableWidgetItem(str(value))
                 item.setData(Qt.UserRole, int(row["id"]))
                 self.student_records_table.setItem(row_index, column, item)
@@ -585,6 +742,17 @@ class DatabasePage(QWidget):
         path = os.path.join(str(KNOWN_FACES_DIR), str(row.get("class_name", "")), f"{row.get('student_name', '')}.npy")
         return os.path.exists(path)
 
+    def _left_display(self, row):
+        if str(row.get("status", "")).lower() != "left":
+            return "-"
+        left_at = str(row.get("left_at") or row.get("updated_at") or "").strip()
+        date_part = left_at.split("T", 1)[0] if left_at else ""
+        return f"Left ({date_part})" if date_part else "Left"
+
+    def _date_display(self, value):
+        text = str(value or "").strip()
+        return text.split("T", 1)[0] if text else ""
+
     def sync_selected_student_from_table(self):
         selected = self.student_records_table.selectedItems() if hasattr(self, "student_records_table") else []
         if not selected:
@@ -602,6 +770,11 @@ class DatabasePage(QWidget):
 
     def _set_selected_student(self, row):
         self.selected_student_record = row
+        self.student_year.setText(str(row.get("academic_year", "")))
+        self.student_semester.setText(str(row.get("semester", "")))
+        self.student_roll.setText(str(row.get("roll_number", "")))
+        self.student_name.setText(str(row.get("student_name", "")))
+        self.student_contact.setText(str(row.get("contact_number", "")))
         status = "Registered" if self._has_legacy_or_db_face(row) else "Not Registered"
         self.face_profile_label.setText(
             f"{row.get('student_name', '')} | Roll: {row.get('roll_number', '')} | {row.get('class_name', '')}"
@@ -629,6 +802,53 @@ class DatabasePage(QWidget):
         else:
             self.face_preview.setPixmap(QPixmap())
             self.face_preview.setText("No Preview")
+
+    def show_face_preview_dialog(self, student_id):
+        image_path = self._face_preview_path(student_id)
+        if not image_path:
+            QMessageBox.information(
+                self,
+                "Face Preview",
+                "No saved face image is available for this student. The face may only have an embedding.",
+            )
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Face Preview")
+        layout = QVBoxLayout(dialog)
+        image_label = QLabel()
+        image_label.setAlignment(Qt.AlignCenter)
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            QMessageBox.warning(self, "Face Preview", "Unable to open the saved face image.")
+            return
+        image_label.setPixmap(pixmap.scaled(420, 420, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        layout.addWidget(image_label)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        dialog.resize(460, 500)
+        dialog.exec()
+
+    def _face_preview_path(self, student_id):
+        with sqlite3.connect(str(analytics_database_path())) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """
+                SELECT image_path
+                FROM face_data
+                WHERE student_id = ?
+                  AND image_path IS NOT NULL
+                  AND image_path != ''
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (int(student_id),),
+            ).fetchone()
+        if not row:
+            return ""
+        image_path = str(row["image_path"] or "")
+        return image_path if image_path and os.path.exists(image_path) else ""
 
     def add_student(self):
         if not self._require_face_admin():

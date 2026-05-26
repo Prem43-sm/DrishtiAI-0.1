@@ -37,6 +37,8 @@ def initialize_student_records_database() -> None:
                 student_name TEXT NOT NULL,
                 contact_number TEXT,
                 face_embeddings_id TEXT,
+                status TEXT NOT NULL DEFAULT 'Active',
+                left_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(class_name, semester, roll_number)
@@ -72,6 +74,14 @@ def initialize_student_records_database() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_name, semester)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_face_data_student ON face_data(student_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_face_logs_student ON face_logs(student_id, timestamp)")
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(students)").fetchall()
+        }
+        if "status" not in columns:
+            conn.execute("ALTER TABLE students ADD COLUMN status TEXT NOT NULL DEFAULT 'Active'")
+        if "left_at" not in columns:
+            conn.execute("ALTER TABLE students ADD COLUMN left_at TEXT")
 
 
 @contextmanager
@@ -120,6 +130,8 @@ def save_student_record(record: dict[str, Any]) -> int:
                     student_name = :student_name,
                     contact_number = :contact_number,
                     face_embeddings_id = :face_embeddings_id,
+                    status = 'Active',
+                    left_at = NULL,
                     updated_at = :updated_at
                 WHERE id = :id
                 """,
@@ -141,6 +153,35 @@ def save_student_record(record: dict[str, Any]) -> int:
             payload,
         )
         return int(cur.lastrowid)
+
+
+def update_student_record(student_id: int, record: dict[str, Any]) -> None:
+    timestamp = now_text()
+    payload = {
+        "id": int(student_id),
+        "academic_year": str(record.get("academic_year", "")).strip(),
+        "class_name": str(record.get("class_name", "")).strip(),
+        "semester": str(record.get("semester", "")).strip(),
+        "roll_number": str(record.get("roll_number", "")).strip(),
+        "student_name": str(record.get("student_name", "")).strip(),
+        "contact_number": str(record.get("contact_number", "")).strip(),
+        "updated_at": timestamp,
+    }
+    with student_records_connection() as conn:
+        conn.execute(
+            """
+            UPDATE students
+            SET academic_year = :academic_year,
+                class_name = :class_name,
+                semester = :semester,
+                roll_number = :roll_number,
+                student_name = :student_name,
+                contact_number = :contact_number,
+                updated_at = :updated_at
+            WHERE id = :id
+            """,
+            payload,
+        )
 
 
 def get_or_create_student_for_face(class_name: str, semester: str, student_name: str) -> int:
@@ -224,8 +265,8 @@ def add_face_data(student_id: int, image_path: str | Path, embedding: np.ndarray
         face_id = int(cur.lastrowid)
         embeddings_id = f"student-{int(student_id)}"
         conn.execute(
-            "UPDATE students SET face_embeddings_id = ?, updated_at = ? WHERE id = ?",
-            (embeddings_id, timestamp, int(student_id)),
+                "UPDATE students SET face_embeddings_id = ?, updated_at = ? WHERE id = ?",
+                (embeddings_id, timestamp, int(student_id)),
         )
         conn.execute(
             """
@@ -268,4 +309,19 @@ def log_face_action(action_type: str, student_id: int, admin_id: str = "admin", 
             VALUES (?, ?, ?, ?, ?)
             """,
             (action_type, admin_id, int(student_id), now_text(), device_info),
+        )
+
+
+def mark_student_left(student_id: int) -> None:
+    timestamp = now_text()
+    with student_records_connection() as conn:
+        conn.execute(
+            """
+            UPDATE students
+            SET status = 'Left',
+                left_at = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (timestamp, timestamp, int(student_id)),
         )

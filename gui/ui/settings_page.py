@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QHBoxLayout,
+    QSizePolicy,
 )
 from PySide6.QtCore import Signal
 
@@ -110,16 +111,17 @@ class SettingsPage(QWidget):
         form.addRow("Face Tolerance", self.tolerance)
         form.addRow(self.auto_attendance)
 
-        form.addRow("Model Path", self.model_path)
-        form.addRow(model_btn)
+        self._prepare_select_button(model_btn)
+        self._prepare_select_button(attendance_btn)
+        self._prepare_select_button(snapshot_btn)
+
+        form.addRow("Model Path", self._path_picker_row(self.model_path, model_btn))
         form.addRow(self.auto_model)
 
-        form.addRow("Attendance Folder", self.attendance_path)
-        form.addRow(attendance_btn)
+        form.addRow("Attendance Folder", self._path_picker_row(self.attendance_path, attendance_btn))
         form.addRow("Course Name", self.course)
 
-        form.addRow("Snapshot Folder", self.snapshot_path)
-        form.addRow(snapshot_btn)
+        form.addRow("Snapshot Folder", self._path_picker_row(self.snapshot_path, snapshot_btn))
         form.addRow(self.auto_snapshot)
 
         form.addRow("Theme", self.theme)
@@ -141,6 +143,21 @@ class SettingsPage(QWidget):
 
         self.setLayout(layout)
         self._apply_to_form(self.data)
+
+    def _prepare_select_button(self, button):
+        button.setMinimumHeight(34)
+        button.setMinimumWidth(130)
+        button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+    def _path_picker_row(self, line_edit, button):
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        line_edit.setMinimumHeight(30)
+        layout.addWidget(line_edit, 1)
+        layout.addWidget(button)
+        return row
 
     def _apply_to_form(self, data):
         self.camera_index.setValue(int(data.get("camera_index", default_settings["camera_index"])))

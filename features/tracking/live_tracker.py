@@ -7,10 +7,13 @@ LIVE_TIMEOUT = 5  # seconds
 
 
 def update_location(name, camera, class_name):
+    name = str(name or "").strip()
+    if not name or name == "Unknown":
+        return
 
     _locations[name] = {
-        "camera": camera,
-        "class": class_name,
+        "camera": str(camera or "Camera"),
+        "class": str(class_name or "Unknown"),
         "time": datetime.now()
     }
 
@@ -51,3 +54,24 @@ def get_all_locations():
         })
 
     return result
+
+
+def get_camera_presence(class_name=None):
+    now = datetime.now()
+    selected_class = str(class_name or "").strip()
+    cameras = {}
+
+    for name, data in _locations.items():
+        diff = (now - data["time"]).total_seconds()
+        if diff > LIVE_TIMEOUT:
+            continue
+        if selected_class and selected_class != "Select Class":
+            if str(data.get("class", "")) != selected_class:
+                continue
+        camera = str(data.get("camera", "Camera"))
+        cameras.setdefault(camera, []).append(name)
+
+    return {
+        camera: sorted(names)
+        for camera, names in sorted(cameras.items())
+    }
